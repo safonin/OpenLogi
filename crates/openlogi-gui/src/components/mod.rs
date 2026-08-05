@@ -7,6 +7,7 @@
 pub mod carousel;
 pub mod device_read;
 pub mod dpi_panel;
+pub mod fn_inversion_panel;
 pub mod lighting_panel;
 pub mod smartshift_panel;
 pub mod status;

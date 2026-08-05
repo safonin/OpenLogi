@@ -100,6 +100,10 @@ pub enum HidppOperation {
     ReadWheelMode,
     /// Write and verify the native HiResWheel mode.
     WriteWheelMode,
+    /// Read function-key inversion state.
+    ReadFnInversion,
+    /// Write function-key inversion state.
+    WriteFnInversion,
 }
 
 /// HID++ feature error kind in a serializable wire-safe form.

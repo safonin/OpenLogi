@@ -15,7 +15,7 @@
 use std::future::Future;
 use std::time::Duration;
 
-use openlogi_core::config::Lighting;
+use openlogi_core::config::{FnLock, Lighting};
 use openlogi_hid::{
     CaptureChannel, DeviceRoute, DpiInfo, HidppFeatureErrorKind, HidppOperation, ScrollResolution,
     SharedChannel, SmartShiftMode, SmartShiftStatus, WriteError,
@@ -682,6 +682,24 @@ pub async fn read_smartshift(route: &DeviceRoute) -> Result<SmartShiftStatus, Wr
     timed(
         HidppOperation::ReadSmartShift,
         openlogi_hid::get_smartshift_status(route),
+    )
+    .await
+}
+
+/// Apply the Fn-lock state to the device at `route`.
+pub async fn apply_fn_inversion(route: &DeviceRoute, lock: FnLock) -> Result<(), WriteError> {
+    timed(
+        HidppOperation::WriteFnInversion,
+        openlogi_hid::set_fn_inversion(route, lock),
+    )
+    .await
+}
+
+/// Read the current Fn-lock state from `route`.
+pub async fn read_fn_inversion(route: &DeviceRoute) -> Result<FnLock, WriteError> {
+    timed(
+        HidppOperation::ReadFnInversion,
+        openlogi_hid::get_fn_inversion(route),
     )
     .await
 }

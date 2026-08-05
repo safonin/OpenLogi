@@ -23,7 +23,7 @@ use openlogi_agent_core::ipc::{
     AgentClient, AgentStatus, InventoryHealth, PROTOCOL_VERSION, PairingCommandError,
     PairingFailure, PairingUpdate,
 };
-use openlogi_core::config::Lighting;
+use openlogi_core::config::{FnLock, Lighting};
 use openlogi_core::device::DeviceInventory;
 use openlogi_hid::{
     DeviceRoute, DpiInfo, ReceiverSelector, SmartShiftMode, SmartShiftStatus, WriteError,
@@ -80,7 +80,9 @@ pub enum Command {
     SetDpi(DeviceRoute, u32),
     SetLighting(DeviceRoute, Lighting),
     SetSmartShift(DeviceRoute, SmartShiftMode, u8, u8),
+    SetFnInversion(DeviceRoute, FnLock),
     ReadDpi(DeviceRoute, oneshot::Sender<Result<DpiInfo, WriteError>>),
+    ReadFnInversion(DeviceRoute, oneshot::Sender<Result<FnLock, WriteError>>),
     ReadSmartShift(
         DeviceRoute,
         oneshot::Sender<Result<SmartShiftStatus, WriteError>>,
@@ -559,6 +561,12 @@ async fn handle(
         Command::ReadSmartShift(route, reply) => {
             let _ = reply.send(rpc_result(client.read_smartshift(ctx, route).await)?);
         }
+        Command::SetFnInversion(route, lock) => {
+            log_apply(client.set_fn_inversion(ctx, route, lock).await)?;
+        }
+        Command::ReadFnInversion(route, reply) => {
+            let _ = reply.send(rpc_result(client.read_fn_inversion(ctx, route).await)?);
+        }
         Command::ReloadConfig => client.reload_config(ctx).await.map_err(|_| ())?,
         Command::RequestAccessibilityPrompt => client
             .request_accessibility_prompt(ctx)
@@ -627,6 +635,9 @@ fn reply_disconnected(pairing_tx: &mpsc::UnboundedSender<PairingUpdate>, cmd: Co
             let _ = reply.send(Err(WriteError::AgentUnavailable));
         }
         Command::ReadSmartShift(_, reply) => {
+            let _ = reply.send(Err(WriteError::AgentUnavailable));
+        }
+        Command::ReadFnInversion(_, reply) => {
             let _ = reply.send(Err(WriteError::AgentUnavailable));
         }
         Command::StartPairing(_) | Command::PairDevice(_) => {

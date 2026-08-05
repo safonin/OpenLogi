@@ -16,7 +16,7 @@ use openlogi_agent_core::ipc::{
 };
 use openlogi_agent_core::orchestrator::{Orchestrator, SharedRuntime};
 use openlogi_agent_core::{hardware, transport};
-use openlogi_core::config::{Config, Lighting};
+use openlogi_core::config::{Config, FnLock, Lighting};
 use openlogi_core::device::DeviceInventory;
 use openlogi_hid::{
     DeviceRoute, DpiInfo, ReceiverSelector, SmartShiftMode, SmartShiftStatus, WriteError,
@@ -120,6 +120,19 @@ impl Agent for AgentServer {
         route: DeviceRoute,
     ) -> Result<SmartShiftStatus, WriteError> {
         hardware::read_smartshift(&route).await
+    }
+
+    async fn set_fn_inversion(
+        self,
+        _: Context,
+        route: DeviceRoute,
+        lock: FnLock,
+    ) -> Result<(), WriteError> {
+        hardware::apply_fn_inversion(&route, lock).await
+    }
+
+    async fn read_fn_inversion(self, _: Context, route: DeviceRoute) -> Result<FnLock, WriteError> {
+        hardware::read_fn_inversion(&route).await
     }
 
     async fn request_accessibility_prompt(self, _: Context) {

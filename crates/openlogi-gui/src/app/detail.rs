@@ -24,6 +24,7 @@ use super::widgets::{
 use super::{AppView, DetailTab};
 use crate::app_menu::file_url;
 use crate::components::dpi_panel::DpiPanel;
+use crate::components::fn_inversion_panel::FnInversionPanel;
 use crate::components::lighting_panel::LightingPanel;
 use crate::components::smartshift_panel::SmartShiftPanel;
 use crate::mouse_model::view::MouseModelView;
@@ -86,11 +87,13 @@ pub(super) fn detail_header(
 /// switches them — is the header's job (see [`detail_header`] and
 /// [`DetailTab::tabs_for`]); `active` arrives pre-resolved against this device's
 /// tab set, so this only has to render the chosen section.
+#[allow(clippy::too_many_arguments, reason = "one panel entity per detail tab")]
 pub(super) fn detail_content(
     mouse_model: &gpui::Entity<MouseModelView>,
     dpi_panel: &gpui::Entity<DpiPanel>,
     smartshift_panel: &gpui::Entity<SmartShiftPanel>,
     lighting_panel: &gpui::Entity<LightingPanel>,
+    fn_inversion_panel: &gpui::Entity<FnInversionPanel>,
     active: DetailTab,
     pal: Palette,
     cx: &mut Context<AppView>,
@@ -103,6 +106,7 @@ pub(super) fn detail_content(
         DetailTab::Buttons => buttons_tab(mouse_model).into_any_element(),
         DetailTab::Pointer => pointer_tab(dpi_panel, smartshift_panel, pal, cx).into_any_element(),
         DetailTab::Lighting => lighting_tab(lighting_panel, pal).into_any_element(),
+        DetailTab::FnLock => fn_lock_tab(fn_inversion_panel, pal).into_any_element(),
         DetailTab::Device => device_tab(pal, cx).into_any_element(),
     };
     v_flex()
@@ -394,6 +398,27 @@ fn lighting_tab(lighting_panel: &gpui::Entity<LightingPanel>, pal: Palette) -> i
             Icon::new(IconName::Palette),
             pal,
             lighting_panel.clone().into_any_element(),
+        )))
+}
+
+/// Fn-lock tab: the function-key inversion toggle. Shown when the device
+/// reports an fn-inversion capability (HID++ 0x40a2/0x40a3).
+fn fn_lock_tab(
+    fn_inversion_panel: &gpui::Entity<FnInversionPanel>,
+    pal: Palette,
+) -> impl IntoElement {
+    v_flex()
+        .flex_1()
+        .w_full()
+        .min_h_0()
+        .items_center()
+        .overflow_y_scrollbar()
+        .p(px(SCREEN_PAD))
+        .child(div().w_full().max_w(px(560.)).child(panel_card(
+            tr!("Fn Lock"),
+            Icon::new(IconName::Info),
+            pal,
+            fn_inversion_panel.clone().into_any_element(),
         )))
 }
 

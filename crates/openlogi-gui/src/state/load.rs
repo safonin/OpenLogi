@@ -3,6 +3,7 @@
 
 use std::collections::BTreeMap;
 
+use openlogi_core::config::FnLock;
 use openlogi_hid::{DpiInfo, SmartShiftStatus, WriteError};
 use tracing::debug;
 
@@ -43,6 +44,8 @@ pub type DpiStatus = Load<DpiInfo>;
 /// stores wheel mode / threshold / torque in its own non-volatile memory, so the
 /// GUI only ever reads and writes the device.
 pub type SmartShiftLoad = Load<SmartShiftStatus>;
+
+pub type FnLockLoad = Load<FnLock>;
 
 /// Per-device lazy-load cache for a background HID++ read, keyed by
 /// [`DeviceRecord::config_key`](super::DeviceRecord::config_key). Holds each

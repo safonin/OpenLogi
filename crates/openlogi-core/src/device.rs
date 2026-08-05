@@ -102,6 +102,10 @@ pub struct Capabilities {
     /// can be read and changed independently of inversion support.
     #[serde(default)]
     pub hires_wheel: bool,
+    /// Function-key inversion / Fn-lock — HID++ `0x40a2` (single-host) or
+    /// `0x40a3` (multi-host).
+    #[serde(default)]
+    pub fn_inversion: bool,
 }
 
 impl Capabilities {
@@ -116,6 +120,8 @@ impl Capabilities {
         // running onboard profile, falling back to 0x8080 per-key). Other families
         // (backlight 0x198x) stay out so they don't earn a tab the panel can't drive.
         const LIGHTING: [u16; 2] = [0x8080, 0x8070];
+        // FnInversion — single-host (0x40a2) or multi-host (0x40a3).
+        const FN_INVERSION: [u16; 2] = [0x40a2, 0x40a3];
         let has = |family: &[u16]| ids.iter().any(|id| family.contains(id));
         Self {
             buttons: has(&BUTTONS),
@@ -123,6 +129,7 @@ impl Capabilities {
             lighting: has(&LIGHTING),
             scroll_inversion: false,
             hires_wheel: ids.contains(&0x2121),
+            fn_inversion: has(&FN_INVERSION),
         }
     }
 
@@ -140,6 +147,7 @@ impl Capabilities {
                 lighting: false,
                 scroll_inversion: false,
                 hires_wheel: false,
+                fn_inversion: false,
             },
             DeviceKind::Keyboard => Self {
                 lighting: true,
@@ -371,6 +379,7 @@ mod tests {
                     lighting: false,
                     scroll_inversion: false,
                     hires_wheel: false,
+                    fn_inversion: false,
                 }),
             }],
         }
@@ -434,6 +443,7 @@ mod tests {
                 lighting: false,
                 scroll_inversion: false,
                 hires_wheel: true,
+                fn_inversion: false,
             }
         );
         // A wired G-series keyboard: PerKeyLighting (0x8080), no DPI/buttons.
@@ -446,6 +456,20 @@ mod tests {
                 lighting: true,
                 scroll_inversion: false,
                 hires_wheel: false,
+                fn_inversion: false,
+            }
+        );
+        // An MX Keys-class keyboard: FnInversion (0x40a3) + ReprogControls.
+        let mx_keys = Capabilities::from_feature_ids(&[0x0001, 0x1b04, 0x40a3]);
+        assert_eq!(
+            mx_keys,
+            Capabilities {
+                buttons: true,
+                pointer: false,
+                lighting: false,
+                scroll_inversion: false,
+                hires_wheel: false,
+                fn_inversion: true,
             }
         );
         // No driving features → nothing offered.

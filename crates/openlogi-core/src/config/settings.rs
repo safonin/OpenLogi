@@ -278,6 +278,32 @@ where
         .unwrap_or(Rgb::WHITE))
 }
 
+/// Per-device Fn-lock (function-key inversion, HID++ `0x40a3`): when on, the
+/// F-keys send their primary (F1–F12) function; when off, the media/hotkey
+/// function. A single toggle — applied per host slot on multi-host devices.
+///
+/// Crosses the agent↔GUI IPC (`set_fn_inversion`), so field order is wire
+/// format — changes require a `PROTOCOL_VERSION` bump (guarded by
+/// `openlogi-agent-core/tests/wire_format.rs`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FnLock {
+    /// Whether Fn-lock (function-key inversion) is enabled.
+    #[serde(default = "default_fn_lock_enabled")]
+    pub enabled: bool,
+}
+
+impl FnLock {
+    /// `skip_serializing_if` helper: true when at the default (off).
+    #[must_use]
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
+fn default_fn_lock_enabled() -> bool {
+    false
+}
+
 /// Vertical wheel reporting resolution for HID++ `0x2121 HiResWheel`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
