@@ -102,6 +102,11 @@ pub struct Capabilities {
     /// can be read and changed independently of inversion support.
     #[serde(default)]
     pub hires_wheel: bool,
+    /// Adjustable keyboard backlight — HID++ `0x1982` (Backlight2). Distinct
+    /// from RGB `lighting` (0x8070/0x8080): this is the white ALS-driven
+    /// backlight of keyboards like the MX Keys.
+    #[serde(default)]
+    pub backlight: bool,
 }
 
 impl Capabilities {
@@ -116,6 +121,9 @@ impl Capabilities {
         // running onboard profile, falling back to 0x8080 per-key). Other families
         // (backlight 0x198x) stay out so they don't earn a tab the panel can't drive.
         const LIGHTING: [u16; 2] = [0x8080, 0x8070];
+        // Backlight2 (0x1982) — the white ALS-driven backlight of keyboards like
+        // the MX Keys. Distinct from RGB lighting (0x8070/0x8080).
+        const BACKLIGHT: [u16; 1] = [0x1982];
         let has = |family: &[u16]| ids.iter().any(|id| family.contains(id));
         Self {
             buttons: has(&BUTTONS),
@@ -123,6 +131,7 @@ impl Capabilities {
             lighting: has(&LIGHTING),
             scroll_inversion: false,
             hires_wheel: ids.contains(&0x2121),
+            backlight: has(&BACKLIGHT),
         }
     }
 
@@ -140,9 +149,11 @@ impl Capabilities {
                 lighting: false,
                 scroll_inversion: false,
                 hires_wheel: false,
+                backlight: false,
             },
             DeviceKind::Keyboard => Self {
                 lighting: true,
+                backlight: true,
                 ..Self::default()
             },
             _ => Self::default(),
@@ -371,6 +382,7 @@ mod tests {
                     lighting: false,
                     scroll_inversion: false,
                     hires_wheel: false,
+                    backlight: false,
                 }),
             }],
         }
@@ -434,6 +446,7 @@ mod tests {
                 lighting: false,
                 scroll_inversion: false,
                 hires_wheel: true,
+                backlight: false,
             }
         );
         // A wired G-series keyboard: PerKeyLighting (0x8080), no DPI/buttons.
@@ -446,6 +459,20 @@ mod tests {
                 lighting: true,
                 scroll_inversion: false,
                 hires_wheel: false,
+                backlight: false,
+            }
+        );
+        // An MX Keys-class keyboard: Backlight2 (0x1982) but no RGB lighting.
+        let backlit = Capabilities::from_feature_ids(&[0x0001, 0x1982, 0x1b04]);
+        assert_eq!(
+            backlit,
+            Capabilities {
+                buttons: true,
+                pointer: false,
+                lighting: false,
+                scroll_inversion: false,
+                hires_wheel: false,
+                backlight: true,
             }
         );
         // No driving features → nothing offered.

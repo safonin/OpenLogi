@@ -7,7 +7,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::settings::{
-    GestureOwner, Lighting, ScrollResolution, SmartShift, deserialize_gesture_owner,
+    BacklightSettings, GestureOwner, Lighting, ScrollResolution, SmartShift,
+    deserialize_gesture_owner,
 };
 use crate::binding::{Action, Binding, ButtonId, GestureDirection};
 use crate::device::{Capabilities, DeviceKind, DeviceModelInfo};
@@ -97,6 +98,11 @@ pub struct DeviceConfig {
     /// until the user changes it, so it stays out of `config.toml` otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lighting: Option<Lighting>,
+    /// Per-device keyboard backlight (HID++ `0x1982`): on/off + power-save/wow
+    /// options. `None` until the user changes it, so it stays out of
+    /// `config.toml` otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backlight: Option<BacklightSettings>,
     /// Per-device SmartShift wheel configuration, re-applied on reconnect for
     /// the same reason as [`Self::dpi`]. `None` until the user changes it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -158,6 +164,8 @@ struct RawDeviceConfig {
     #[serde(default)]
     lighting: Option<Lighting>,
     #[serde(default)]
+    backlight: Option<BacklightSettings>,
+    #[serde(default)]
     smartshift: Option<SmartShift>,
     #[serde(default)]
     invert_scroll: bool,
@@ -204,6 +212,7 @@ impl From<RawDeviceConfig> for DeviceConfig {
             dpi_presets: raw.dpi_presets,
             dpi: raw.dpi,
             lighting: raw.lighting,
+            backlight: raw.backlight,
             smartshift: raw.smartshift,
             invert_scroll: raw.invert_scroll,
             scroll_resolution: raw.scroll_resolution,

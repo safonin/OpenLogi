@@ -1,5 +1,5 @@
-//! Implements the `Backlight` feature (ID `0x1982`, version 3) for keyboards
-//! with an adjustable backlight.
+//! Implements the `Backlight` feature (ID `0x1982`) for keyboards with an
+//! adjustable backlight.
 //!
 //! The feature enables/disables the backlight, selects a backlight mode
 //! (automatic via the ambient-light sensor, temporary manual, or permanent
@@ -7,6 +7,18 @@
 //! fade-out durations.
 //!
 //! All multi-byte fields in this feature are little-endian.
+//!
+//! # Versions
+//!
+//! The wire layout of all four functions and the `backlightInfoEvent` is
+//! identical from version 1 onward; version 3 only makes additional *fields*
+//! writable (manual level and the three fade-out durations). A version-1
+//! device — e.g. the MX Keys, which reports `0x1982` v1 — decodes every read
+//! identically and accepts mode/enabled/effect writes; writes to the level
+//! and duration fields are simply ignored by the firmware. This impl is
+//! therefore bound from version 1 up rather than version 3, matching Solaar's
+//! single `Backlight` class ("x1982 Backlight2 v3, but also works for previous
+//! versions").
 
 use std::sync::Arc;
 
@@ -251,7 +263,11 @@ pub struct BacklightFeature {
 
 impl CreatableFeature for BacklightFeature {
     const ID: u16 = 0x1982;
-    const STARTING_VERSION: u8 = 3;
+    /// Bound from version 1: reads and mode/enabled/effect writes work on every
+    /// version; only manual level and fade-out duration *writes* are v3-gated
+    /// by the caller (the firmware silently ignores them on older devices).
+    /// See the module-level version note.
+    const STARTING_VERSION: u8 = 1;
 
     fn new(chan: Arc<HidppChannel>, device_index: u8, feature_index: u8) -> Self {
         let emitter = Arc::new(EventEmitter::new());

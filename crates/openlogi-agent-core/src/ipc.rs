@@ -6,7 +6,7 @@
 //! flow long-polls [`Agent::next_pairing`], which the agent holds open until a
 //! pairing event arrives or the request deadline elapses.
 
-use openlogi_core::config::Lighting;
+use openlogi_core::config::{BacklightSettings, Lighting};
 use openlogi_core::device::DeviceInventory;
 use openlogi_hid::{
     DeviceRoute, DpiInfo, PairingError, PasskeyMethod, ReceiverSelector, SmartShiftMode,
@@ -28,7 +28,8 @@ use serde::{Deserialize, Serialize};
 /// v8: [`WriteError`] carries typed HID++ operation failures.
 /// v9: `poll_event_monitor` appended + [`MonitorEvent`] (live event monitor).
 /// v10: `Capabilities::hires_wheel` appended.
-pub const PROTOCOL_VERSION: u32 = 10;
+/// v11: `Capabilities::backlight` + `set_backlight` / `read_backlight` added.
+pub const PROTOCOL_VERSION: u32 = 11;
 
 /// Where the agent's device enumeration stands. The distinction matters
 /// because an empty inventory list is ambiguous on its own: the GUI must keep
@@ -275,4 +276,12 @@ pub trait Agent {
     /// there is no explicit stop. Appended last — see the method-order note on
     /// [`Agent::protocol_version`].
     async fn poll_event_monitor() -> Vec<MonitorEvent>;
+    /// Apply a backlight config to `route` now. Appended for protocol v11 —
+    /// keep future methods append-only (see [`Self::protocol_version`]).
+    async fn set_backlight(
+        route: DeviceRoute,
+        backlight: BacklightSettings,
+    ) -> Result<(), WriteError>;
+    /// Read the current backlight config from `route`.
+    async fn read_backlight(route: DeviceRoute) -> Result<BacklightSettings, WriteError>;
 }

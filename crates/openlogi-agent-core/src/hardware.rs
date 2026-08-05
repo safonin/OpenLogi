@@ -15,7 +15,7 @@
 use std::future::Future;
 use std::time::Duration;
 
-use openlogi_core::config::Lighting;
+use openlogi_core::config::{BacklightSettings, Lighting};
 use openlogi_hid::{
     CaptureChannel, DeviceRoute, DpiInfo, HidppFeatureErrorKind, HidppOperation, ScrollResolution,
     SharedChannel, SmartShiftMode, SmartShiftStatus, WriteError,
@@ -664,6 +664,28 @@ pub async fn apply_lighting(route: &DeviceRoute, lighting: &Lighting) -> Result<
     timed(
         HidppOperation::Lighting,
         openlogi_hid::set_keyboard_color(route, r, g, b),
+    )
+    .await
+}
+
+/// Apply a backlight config to the keyboard at `route`.
+pub async fn apply_backlight(
+    route: &DeviceRoute,
+    backlight: &BacklightSettings,
+) -> Result<(), WriteError> {
+    timed(
+        HidppOperation::WriteBacklight,
+        openlogi_hid::set_backlight_settings(route, backlight),
+    )
+    .await
+}
+
+/// Read the current backlight config from `route` as the user-facing
+/// [`BacklightSettings`].
+pub async fn read_backlight(route: &DeviceRoute) -> Result<BacklightSettings, WriteError> {
+    timed(
+        HidppOperation::ReadBacklight,
+        openlogi_hid::read_backlight_settings(route),
     )
     .await
 }

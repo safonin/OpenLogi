@@ -13,6 +13,7 @@ use hidpp::{channel::HidppChannel, device::Device, feature::CreatableFeature};
 
 use crate::route::{DeviceRoute, open_route_channel};
 
+mod backlight;
 mod diagnostics;
 mod dpi;
 mod error;
@@ -20,6 +21,10 @@ mod lighting;
 mod shared;
 mod smartshift;
 
+pub use backlight::{
+    get_backlight_config, get_backlight_info, read_backlight_settings, set_backlight_config,
+    set_backlight_settings,
+};
 pub use diagnostics::{FeatureEntry, ReprogControlEntry, dump_features, dump_reprog_controls};
 pub use dpi::{DpiCapabilities, DpiInfo, get_dpi, get_dpi_info, set_dpi};
 pub use error::{HidppFeatureErrorKind, HidppOperation, WriteError};

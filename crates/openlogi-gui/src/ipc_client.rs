@@ -23,7 +23,7 @@ use openlogi_agent_core::ipc::{
     AgentClient, AgentStatus, InventoryHealth, PROTOCOL_VERSION, PairingCommandError,
     PairingFailure, PairingUpdate,
 };
-use openlogi_core::config::Lighting;
+use openlogi_core::config::{BacklightSettings, Lighting};
 use openlogi_core::device::DeviceInventory;
 use openlogi_hid::{
     DeviceRoute, DpiInfo, ReceiverSelector, SmartShiftMode, SmartShiftStatus, WriteError,
@@ -79,8 +79,13 @@ pub struct PollUpdate {
 pub enum Command {
     SetDpi(DeviceRoute, u32),
     SetLighting(DeviceRoute, Lighting),
+    SetBacklight(DeviceRoute, BacklightSettings),
     SetSmartShift(DeviceRoute, SmartShiftMode, u8, u8),
     ReadDpi(DeviceRoute, oneshot::Sender<Result<DpiInfo, WriteError>>),
+    ReadBacklight(
+        DeviceRoute,
+        oneshot::Sender<Result<BacklightSettings, WriteError>>,
+    ),
     ReadSmartShift(
         DeviceRoute,
         oneshot::Sender<Result<SmartShiftStatus, WriteError>>,
@@ -550,11 +555,17 @@ async fn handle(
         Command::SetLighting(route, lighting) => {
             log_apply(client.set_lighting(ctx, route, lighting).await)?;
         }
+        Command::SetBacklight(route, backlight) => {
+            log_apply(client.set_backlight(ctx, route, backlight).await)?;
+        }
         Command::SetSmartShift(route, mode, auto, torque) => {
             log_apply(client.set_smartshift(ctx, route, mode, auto, torque).await)?;
         }
         Command::ReadDpi(route, reply) => {
             let _ = reply.send(rpc_result(client.read_dpi(ctx, route).await)?);
+        }
+        Command::ReadBacklight(route, reply) => {
+            let _ = reply.send(rpc_result(client.read_backlight(ctx, route).await)?);
         }
         Command::ReadSmartShift(route, reply) => {
             let _ = reply.send(rpc_result(client.read_smartshift(ctx, route).await)?);
@@ -624,6 +635,9 @@ fn reply_disconnected(pairing_tx: &mpsc::UnboundedSender<PairingUpdate>, cmd: Co
     // so the panel should keep retrying, not latch "unsupported".
     match cmd {
         Command::ReadDpi(_, reply) => {
+            let _ = reply.send(Err(WriteError::AgentUnavailable));
+        }
+        Command::ReadBacklight(_, reply) => {
             let _ = reply.send(Err(WriteError::AgentUnavailable));
         }
         Command::ReadSmartShift(_, reply) => {

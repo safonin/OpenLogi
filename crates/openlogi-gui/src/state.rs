@@ -13,7 +13,8 @@ use std::collections::BTreeMap;
 
 use gpui::{App, Global};
 use openlogi_core::config::{
-    AppSettings, Appearance, AssetSourcePreference, Config, DeviceIdentity, Lighting,
+    AppSettings, Appearance, AssetSourcePreference, BacklightSettings, Config, DeviceIdentity,
+    Lighting,
 };
 use openlogi_core::device::{DeviceInventory, DeviceModelInfo};
 use openlogi_hid::{
@@ -26,7 +27,7 @@ mod devices;
 mod load;
 
 pub use devices::DeviceRecord;
-pub use load::{DpiStatus, Load, SmartShiftLoad};
+pub use load::{BacklightLoad, DpiStatus, Load, SmartShiftLoad};
 
 /// Result of confirming a SmartShift write by reading the value back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,6 +131,8 @@ pub struct AppState {
     /// [`Self::dpi_data`]; the device persists the values itself, so this is a
     /// read/write cache, not a source of truth saved to disk.
     smartshift_data: LazyDeviceData<SmartShiftStatus>,
+    /// Live Backlight2 state used until the user saves an explicit override.
+    backlight_data: LazyDeviceData<BacklightSettings>,
     /// Devices whose SmartShift was just written optimistically and still need a
     /// confirming re-read, keyed by [`DeviceRecord::config_key`]. A fire-and-
     /// forget write can be rejected/timed-out by a sleeping device, so the panel
@@ -203,6 +206,7 @@ impl AppState {
             dpi_data: LazyDeviceData::default(),
             inventory_misses: BTreeMap::new(),
             smartshift_data: LazyDeviceData::default(),
+            backlight_data: LazyDeviceData::default(),
             smartshift_pending_confirm: BTreeMap::new(),
             next_smartshift_write_id: 0,
             smartshift_write_status: BTreeMap::new(),
@@ -444,6 +448,7 @@ impl AppState {
         for key in &rerouted {
             self.dpi_data.remove(key);
             self.smartshift_data.remove(key);
+            self.backlight_data.remove(key);
             self.smartshift_pending_confirm.remove(key);
             self.smartshift_write_status.remove(key);
         }
@@ -454,6 +459,7 @@ impl AppState {
         };
         self.dpi_data.retain_present(present);
         self.smartshift_data.retain_present(present);
+        self.backlight_data.retain_present(present);
         self.smartshift_pending_confirm
             .retain(|key, _| present(key));
         self.smartshift_write_status.retain(|key, _| present(key));
@@ -1068,6 +1074,86 @@ impl AppState {
             .unwrap_or_default()
     }
 
+    /// The explicit backlight override for the active device, otherwise the
+    /// live device read, falling back only while no value is available.
+    pub fn backlight(&self) -> BacklightSettings {
+        match self.current_backlight_status() {
+            BacklightLoad::Ready(settings) => settings,
+            BacklightLoad::Unknown
+            | BacklightLoad::Loading
+            | BacklightLoad::Failed(_)
+            | BacklightLoad::Unsupported(_) => BacklightSettings::default(),
+        }
+    }
+
+    /// Backlight state for the active device. An explicit persisted override
+    /// wins; otherwise this reports the lazy hardware read.
+    pub fn current_backlight_status(&self) -> BacklightLoad {
+        self.current_record()
+            .map_or(BacklightLoad::Unknown, |record| {
+                record
+                    .persistent_config_key()
+                    .and_then(|key| self.config.backlight(key))
+                    .map_or_else(
+                        || self.backlight_data.status(&record.config_key),
+                        BacklightLoad::Ready,
+                    )
+            })
+    }
+
+    /// Whether the active device needs a live backlight read. Persisted user
+    /// settings are already authoritative and do not trigger a read.
+    pub fn current_backlight_unqueried(&self) -> bool {
+        self.current_record().is_some_and(|record| {
+            let has_override = record
+                .persistent_config_key()
+                .and_then(|key| self.config.backlight(key))
+                .is_some();
+            !has_override && self.backlight_data.unqueried(&record.config_key)
+        })
+    }
+
+    pub fn mark_backlight_loading(&mut self, key: &str) {
+        self.backlight_data.mark_loading(key);
+    }
+
+    pub fn clear_backlight_loading(&mut self, key: &str) {
+        self.backlight_data.clear_loading(key);
+    }
+
+    pub fn retry_active_backlight(&mut self) {
+        if let Some(key) = self
+            .current_record()
+            .map(|record| record.config_key.clone())
+        {
+            self.backlight_data.retry(&key);
+        }
+    }
+
+    pub fn store_backlight_settings(
+        &mut self,
+        key: String,
+        route: &DeviceRoute,
+        result: Result<BacklightSettings, WriteError>,
+    ) {
+        let matches_route = self
+            .device_list
+            .iter()
+            .any(|record| record.config_key == key && record.route.as_ref() == Some(route));
+        let still_present = self
+            .device_list
+            .iter()
+            .any(|record| record.config_key == key);
+        self.backlight_data.store(
+            key,
+            result,
+            backlight_error_is_permanent,
+            matches_route,
+            still_present,
+            "Backlight",
+        );
+    }
+
     /// The stored lighting config for `key`, or `None` when unset.
     #[must_use]
     pub fn lighting_for(&self, key: &str) -> Option<Lighting> {
@@ -1106,6 +1192,28 @@ impl AppState {
         // when the keyboard reconnects, and without the reload it would
         // replay whatever was saved the last time something *else* reloaded.
         self.persist_and_reload("lighting");
+    }
+
+    /// Persist a new backlight config for the active device and push it to the
+    /// hardware (best-effort). No-op when no device is selected.
+    pub fn commit_backlight(&mut self, backlight: BacklightSettings) {
+        let Some(record) = self.current_record() else {
+            debug!("no active device — backlight change ignored");
+            return;
+        };
+        let key = record.persistent_config_key().map(str::to_string);
+        let target = record.route.clone();
+        self.backlight_data
+            .set_ready(record.config_key.clone(), backlight);
+        if let Some(route) = target {
+            self.send_ipc(crate::ipc_client::Command::SetBacklight(route, backlight));
+        }
+        let Some(key) = key else {
+            debug!("transient device backlight applied without persistence");
+            return;
+        };
+        self.config.set_backlight(&key, backlight);
+        self.persist_and_reload("backlight");
     }
 
     /// Apply `dpi` to the active device (best-effort, via the agent) and
@@ -1499,6 +1607,10 @@ fn smartshift_error_is_permanent(error: &WriteError) -> bool {
     matches!(error, WriteError::FeatureUnsupported { .. })
 }
 
+fn backlight_error_is_permanent(error: &WriteError) -> bool {
+    matches!(error, WriteError::FeatureUnsupported { .. })
+}
+
 fn smartshift_write_outcome(
     expected: SmartShiftStatus,
     load: Option<&SmartShiftLoad>,
@@ -1548,7 +1660,9 @@ impl Global for AppState {}
 
 #[cfg(test)]
 mod tests {
-    use openlogi_core::config::{Config, DeviceIdentity, Lighting, ScrollResolution};
+    use openlogi_core::config::{
+        BacklightSettings, Config, DeviceIdentity, Lighting, ScrollResolution,
+    };
     use openlogi_core::device::{
         Capabilities, DeviceInventory, DeviceKind, DeviceModelInfo, DeviceTransports, PairedDevice,
         ReceiverInfo,
@@ -1559,7 +1673,7 @@ mod tests {
     use openlogi_hid::{SmartShiftMode, SmartShiftStatus};
 
     use super::{
-        AppState, Load, SmartShiftWriteStatus, build_device_list,
+        AppState, BacklightLoad, Load, SmartShiftWriteStatus, build_device_list,
         set_scroll_resolution_if_supported, smartshift_read_is_current, smartshift_write_outcome,
     };
 
@@ -1589,6 +1703,38 @@ mod tests {
                 capabilities: Some(Capabilities::presumed_from_kind(DeviceKind::Mouse)),
             }],
         }
+    }
+
+    #[test]
+    fn unset_backlight_config_loads_hardware_state_instead_of_completing_with_defaults()
+    -> Result<(), &'static str> {
+        let cache = AssetResolver::new();
+        let (commands, _receiver) = tokio::sync::mpsc::unbounded_channel();
+        let mut state = AppState::with_runtime(
+            Config::default(),
+            &[direct_inventory([0xa3, 0x93, 0xca, 0xe0])],
+            &cache,
+            commands,
+        );
+        let key = state.device_list[0].config_key.clone();
+        let route = state.device_list[0].route.clone().ok_or("live route")?;
+
+        assert_eq!(state.current_backlight_status(), BacklightLoad::Unknown);
+        state.mark_backlight_loading(&key);
+        assert_eq!(state.current_backlight_status(), BacklightLoad::Loading);
+
+        let actual = BacklightSettings {
+            enabled: false,
+            power_save: false,
+            wow: true,
+        };
+        state.store_backlight_settings(key, &route, Ok(actual));
+        assert_eq!(
+            state.current_backlight_status(),
+            BacklightLoad::Ready(actual)
+        );
+        assert_eq!(state.backlight(), actual);
+        Ok(())
     }
 
     #[test]

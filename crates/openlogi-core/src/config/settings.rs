@@ -278,6 +278,54 @@ where
         .unwrap_or(Rgb::WHITE))
 }
 
+/// Per-device keyboard backlight (HID++ `0x1982` Backlight2): master on/off
+/// plus the two user-toggleable options MX Keys-class keyboards expose.
+///
+/// Crosses the agent↔GUI IPC (`set_backlight`), so field order is wire format
+/// — changes require a `PROTOCOL_VERSION` bump (guarded by
+/// `openlogi-agent-core/tests/wire_format.rs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BacklightSettings {
+    /// Master on/off for the backlight system. The options persist while
+    /// disabled, so re-enabling restores the previous behaviour.
+    #[serde(default = "default_backlight_enabled")]
+    pub enabled: bool,
+    /// Power-save: dim/disable the backlight when the battery is critically
+    /// low. The MX Keys advertises this as supported.
+    #[serde(default = "default_backlight_power_save")]
+    pub power_save: bool,
+    /// The "wow" power-on effect. The MX Keys advertises this as supported.
+    #[serde(default)]
+    pub wow: bool,
+}
+
+impl Default for BacklightSettings {
+    fn default() -> Self {
+        Self {
+            enabled: default_backlight_enabled(),
+            power_save: default_backlight_power_save(),
+            wow: false,
+        }
+    }
+}
+
+impl BacklightSettings {
+    /// `skip_serializing_if` helper: true when nothing diverges from the
+    /// default, so empty settings don't clutter `config.toml`.
+    #[must_use]
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
+fn default_backlight_enabled() -> bool {
+    true
+}
+
+fn default_backlight_power_save() -> bool {
+    true
+}
+
 /// Vertical wheel reporting resolution for HID++ `0x2121 HiResWheel`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

@@ -16,7 +16,7 @@ use openlogi_agent_core::ipc::{
 };
 use openlogi_agent_core::orchestrator::{Orchestrator, SharedRuntime};
 use openlogi_agent_core::{hardware, transport};
-use openlogi_core::config::{Config, Lighting};
+use openlogi_core::config::{BacklightSettings, Config, Lighting};
 use openlogi_core::device::DeviceInventory;
 use openlogi_hid::{
     DeviceRoute, DpiInfo, ReceiverSelector, SmartShiftMode, SmartShiftStatus, WriteError,
@@ -120,6 +120,23 @@ impl Agent for AgentServer {
         route: DeviceRoute,
     ) -> Result<SmartShiftStatus, WriteError> {
         hardware::read_smartshift(&route).await
+    }
+
+    async fn set_backlight(
+        self,
+        _: Context,
+        route: DeviceRoute,
+        backlight: BacklightSettings,
+    ) -> Result<(), WriteError> {
+        hardware::apply_backlight(&route, &backlight).await
+    }
+
+    async fn read_backlight(
+        self,
+        _: Context,
+        route: DeviceRoute,
+    ) -> Result<BacklightSettings, WriteError> {
+        hardware::read_backlight(&route).await
     }
 
     async fn request_accessibility_prompt(self, _: Context) {

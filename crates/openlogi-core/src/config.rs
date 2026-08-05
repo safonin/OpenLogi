@@ -21,10 +21,10 @@ mod settings;
 
 pub use device::{DeviceConfig, DeviceIdentity};
 pub use settings::{
-    AppSettings, Appearance, AssetSourcePreference, DEFAULT_THUMBWHEEL_SENSITIVITY, GestureOwner,
-    Lighting, MAX_THUMBWHEEL_SENSITIVITY, MIN_THUMBWHEEL_SENSITIVITY,
-    SMARTSHIFT_AUTO_DISENGAGE_DEFAULT, SMARTSHIFT_MIN_AUTO_DISENGAGE, ScrollResolution, SmartShift,
-    WheelMode,
+    AppSettings, Appearance, AssetSourcePreference, BacklightSettings,
+    DEFAULT_THUMBWHEEL_SENSITIVITY, GestureOwner, Lighting, MAX_THUMBWHEEL_SENSITIVITY,
+    MIN_THUMBWHEEL_SENSITIVITY, SMARTSHIFT_AUTO_DISENGAGE_DEFAULT, SMARTSHIFT_MIN_AUTO_DISENGAGE,
+    ScrollResolution, SmartShift, WheelMode,
 };
 
 use crate::binding::{Action, Binding, ButtonId, GestureDirection, default_binding_for};
@@ -497,6 +497,20 @@ impl Config {
             .lighting = Some(lighting);
     }
 
+    /// The backlight config for `device_key`, or `None` if unset.
+    #[must_use]
+    pub fn backlight(&self, device_key: &str) -> Option<BacklightSettings> {
+        self.devices.get(device_key).and_then(|d| d.backlight)
+    }
+
+    /// Replace the backlight config for `device_key`.
+    pub fn set_backlight(&mut self, device_key: &str, backlight: BacklightSettings) {
+        self.devices
+            .entry(device_key.to_string())
+            .or_default()
+            .backlight = Some(backlight);
+    }
+
     /// The committed sensor DPI for `device_key`, or `None` if never set.
     #[must_use]
     pub fn dpi(&self, device_key: &str) -> Option<u32> {
@@ -895,6 +909,7 @@ mod tests {
                 lighting: false,
                 scroll_inversion: false,
                 hires_wheel: true,
+                backlight: false,
             },
         };
         cfg.set_device_identity("2b034", mouse.clone());

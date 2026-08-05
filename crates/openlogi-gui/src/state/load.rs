@@ -3,6 +3,7 @@
 
 use std::collections::BTreeMap;
 
+use openlogi_core::config::BacklightSettings;
 use openlogi_hid::{DpiInfo, SmartShiftStatus, WriteError};
 use tracing::debug;
 
@@ -43,6 +44,10 @@ pub type DpiStatus = Load<DpiInfo>;
 /// stores wheel mode / threshold / torque in its own non-volatile memory, so the
 /// GUI only ever reads and writes the device.
 pub type SmartShiftLoad = Load<SmartShiftStatus>;
+
+/// Per-device Backlight2 config load state. Persisted config overrides this
+/// live read; it is used when the user has not yet chosen explicit settings.
+pub type BacklightLoad = Load<BacklightSettings>;
 
 /// Per-device lazy-load cache for a background HID++ read, keyed by
 /// [`DeviceRecord::config_key`](super::DeviceRecord::config_key). Holds each

@@ -10,6 +10,7 @@ use anyhow::{Result, anyhow};
 use clap::Subcommand;
 use openlogi_hid::{DeviceRoute, dump_features};
 
+pub mod backlight;
 pub mod controls;
 pub mod dpi;
 pub mod features;
@@ -31,6 +32,8 @@ pub enum DiagCmd {
     Lighting(lighting::LightingArgs),
     /// Read or set the HID++ 0x2121 wheel reporting resolution.
     Wheel(wheel::WheelArgs),
+    /// Read the HID++ 0x1982 keyboard backlight config/info (e.g. MX Keys).
+    Backlight(backlight::BacklightArgs),
 }
 
 impl DiagCmd {
@@ -42,6 +45,7 @@ impl DiagCmd {
             Self::Smartshift(args) => smartshift::run(args).await,
             Self::Lighting(args) => lighting::run(args).await,
             Self::Wheel(args) => wheel::run(args).await,
+            Self::Backlight(args) => backlight::run(args).await,
         }
     }
 }
