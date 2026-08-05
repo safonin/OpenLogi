@@ -15,10 +15,10 @@
 use std::future::Future;
 use std::time::Duration;
 
-use openlogi_core::config::Lighting;
+use openlogi_core::config::{KeyRemap, Lighting};
 use openlogi_hid::{
-    CaptureChannel, DeviceRoute, DpiInfo, HidppFeatureErrorKind, HidppOperation, ScrollResolution,
-    SharedChannel, SmartShiftMode, SmartShiftStatus, WriteError,
+    CaptureChannel, DeviceRoute, DpiInfo, HidppFeatureErrorKind, HidppOperation, RemappableControl,
+    ScrollResolution, SharedChannel, SmartShiftMode, SmartShiftStatus, WriteError,
 };
 use tracing::{debug, warn};
 
@@ -597,6 +597,31 @@ pub fn set_lighting_in_background(target: Option<DeviceRoute>, lighting: &Lighti
     });
 }
 
+/// Re-apply a managed volatile key-remap map after a device reconnects.
+pub fn set_key_remap_in_background(target: Option<DeviceRoute>, remap: &KeyRemap) {
+    let Some(target) = target else {
+        debug!("no target device — key remap write skipped");
+        return;
+    };
+    let remap = remap.clone();
+    std::thread::spawn(move || {
+        let rt = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt,
+            Err(error) => {
+                warn!(%error, "tokio runtime init failed; key remap write skipped");
+                return;
+            }
+        };
+        match rt.block_on(openlogi_hid::apply_key_remap(&target, &remap)) {
+            Ok(()) => debug!("key remap re-applied"),
+            Err(error) => warn!(%error, "key remap re-apply failed"),
+        }
+    });
+}
+
 /// Resolve a [`Lighting`] config to an `(r, g, b)` triple: the configured
 /// colour scaled by brightness, or black when lighting is off.
 fn lighting_rgb(lighting: &Lighting) -> (u8, u8, u8) {
@@ -682,6 +707,31 @@ pub async fn read_smartshift(route: &DeviceRoute) -> Result<SmartShiftStatus, Wr
     timed(
         HidppOperation::ReadSmartShift,
         openlogi_hid::get_smartshift_status(route),
+    )
+    .await
+}
+
+/// Apply a full key-remap map to the device at `route`. Each `(source, target)`
+/// pair is written via HID++ `0x1b04` `setCidReporting`. The remap is volatile
+/// (session-based), so the agent re-applies this on reconnect.
+///
+/// Returns `Ok(())` once every remap is written; a per-key failure short-circuits
+/// with the first error (the caller can retry the whole map on the next tick).
+pub async fn apply_key_remap(route: &DeviceRoute, remap: &KeyRemap) -> Result<(), WriteError> {
+    timed(
+        HidppOperation::WriteRemap,
+        openlogi_hid::apply_key_remap(route, remap),
+    )
+    .await
+}
+
+/// Read the list of reprogrammable controls the device at `route` exposes.
+pub async fn read_remappable_controls(
+    route: &DeviceRoute,
+) -> Result<Vec<RemappableControl>, WriteError> {
+    timed(
+        HidppOperation::ReadRemap,
+        openlogi_hid::read_remappable_controls(route),
     )
     .await
 }

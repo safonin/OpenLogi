@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::settings::{
-    GestureOwner, Lighting, ScrollResolution, SmartShift, deserialize_gesture_owner,
+    GestureOwner, KeyRemap, Lighting, ScrollResolution, SmartShift, deserialize_gesture_owner,
 };
 use crate::binding::{Action, Binding, ButtonId, GestureDirection};
 use crate::device::{Capabilities, DeviceKind, DeviceModelInfo};
@@ -97,6 +97,11 @@ pub struct DeviceConfig {
     /// until the user changes it, so it stays out of `config.toml` otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lighting: Option<Lighting>,
+    /// Per-device key remap (HID++ `0x1b04`): source ControlId → target
+    /// ControlId. Volatile on the device, so re-applied on reconnect. `None`
+    /// until the user remaps a key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_remap: Option<KeyRemap>,
     /// Per-device SmartShift wheel configuration, re-applied on reconnect for
     /// the same reason as [`Self::dpi`]. `None` until the user changes it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -158,6 +163,8 @@ struct RawDeviceConfig {
     #[serde(default)]
     lighting: Option<Lighting>,
     #[serde(default)]
+    key_remap: Option<KeyRemap>,
+    #[serde(default)]
     smartshift: Option<SmartShift>,
     #[serde(default)]
     invert_scroll: bool,
@@ -204,9 +211,29 @@ impl From<RawDeviceConfig> for DeviceConfig {
             dpi_presets: raw.dpi_presets,
             dpi: raw.dpi,
             lighting: raw.lighting,
+            key_remap: raw.key_remap,
             smartshift: raw.smartshift,
             invert_scroll: raw.invert_scroll,
             scroll_resolution: raw.scroll_resolution,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DeviceConfig;
+    use crate::config::KeyRemap;
+
+    #[test]
+    fn managed_empty_key_remap_survives_toml_round_trip() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let config = DeviceConfig {
+            key_remap: Some(KeyRemap::default()),
+            ..DeviceConfig::default()
+        };
+        let encoded = toml::to_string(&config)?;
+        let decoded: DeviceConfig = toml::from_str(&encoded)?;
+        assert_eq!(decoded.key_remap, Some(KeyRemap::default()));
+        Ok(())
     }
 }

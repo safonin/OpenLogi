@@ -102,6 +102,11 @@ pub struct Capabilities {
     /// can be read and changed independently of inversion support.
     #[serde(default)]
     pub hires_wheel: bool,
+    /// Reprogrammable keyboard keys — HID++ `0x1b04` (ReprogControls5) with
+    /// divertable controls. Distinct from mouse `buttons`: this gates the
+    /// keyboard key-remap panel, not the mouse-model hotspot view.
+    #[serde(default)]
+    pub key_remap: bool,
 }
 
 impl Capabilities {
@@ -116,6 +121,11 @@ impl Capabilities {
         // running onboard profile, falling back to 0x8080 per-key). Other families
         // (backlight 0x198x) stay out so they don't earn a tab the panel can't drive.
         const LIGHTING: [u16; 2] = [0x8080, 0x8070];
+        // ReprogControls5 (0x1b04) — the feature setCidReporting drives for
+        // keyboard key remapping. Distinct from the mouse-button BUTTONS gate
+        // (which also matches 0x1b04 but additionally requires a mouse-model
+        // asset to show the hotspot view).
+        const KEY_REMAP: [u16; 1] = [0x1b04];
         let has = |family: &[u16]| ids.iter().any(|id| family.contains(id));
         Self {
             buttons: has(&BUTTONS),
@@ -123,6 +133,7 @@ impl Capabilities {
             lighting: has(&LIGHTING),
             scroll_inversion: false,
             hires_wheel: ids.contains(&0x2121),
+            key_remap: has(&KEY_REMAP),
         }
     }
 
@@ -140,6 +151,7 @@ impl Capabilities {
                 lighting: false,
                 scroll_inversion: false,
                 hires_wheel: false,
+                key_remap: false,
             },
             DeviceKind::Keyboard => Self {
                 lighting: true,
@@ -371,6 +383,7 @@ mod tests {
                     lighting: false,
                     scroll_inversion: false,
                     hires_wheel: false,
+                    key_remap: false,
                 }),
             }],
         }
@@ -424,7 +437,7 @@ mod tests {
     fn capabilities_track_the_driving_feature_ids() {
         use super::Capabilities;
         // A typical MX mouse: ReprogControls (0x1b04) + ExtendedAdjustableDpi
-        // (0x2202), no lighting.
+        // (0x2202), no lighting. 0x1b04 flips both `buttons` and `key_remap`.
         let mouse = Capabilities::from_feature_ids(&[0x0003, 0x1b04, 0x2121, 0x2202, 0x2110]);
         assert_eq!(
             mouse,
@@ -434,9 +447,11 @@ mod tests {
                 lighting: false,
                 scroll_inversion: false,
                 hires_wheel: true,
+                key_remap: true,
             }
         );
-        // A wired G-series keyboard: PerKeyLighting (0x8080), no DPI/buttons.
+        // A wired G-series keyboard: PerKeyLighting (0x8080), no DPI/buttons,
+        // no ReprogControls.
         let keyboard = Capabilities::from_feature_ids(&[0x0001, 0x8080]);
         assert_eq!(
             keyboard,
@@ -446,6 +461,21 @@ mod tests {
                 lighting: true,
                 scroll_inversion: false,
                 hires_wheel: false,
+                key_remap: false,
+            }
+        );
+        // An MX Keys-class keyboard: ReprogControls (0x1b04) + Backlight2
+        // (0x1982), no RGB lighting, no DPI.
+        let mx_keys = Capabilities::from_feature_ids(&[0x0001, 0x1982, 0x1b04]);
+        assert_eq!(
+            mx_keys,
+            Capabilities {
+                buttons: true,
+                pointer: false,
+                lighting: false,
+                scroll_inversion: false,
+                hires_wheel: false,
+                key_remap: true,
             }
         );
         // No driving features → nothing offered.

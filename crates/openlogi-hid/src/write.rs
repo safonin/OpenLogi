@@ -17,6 +17,7 @@ mod diagnostics;
 mod dpi;
 mod error;
 mod lighting;
+mod remap;
 mod shared;
 mod smartshift;
 
@@ -24,6 +25,10 @@ pub use diagnostics::{FeatureEntry, ReprogControlEntry, dump_features, dump_repr
 pub use dpi::{DpiCapabilities, DpiInfo, get_dpi, get_dpi_info, set_dpi};
 pub use error::{HidppFeatureErrorKind, HidppOperation, WriteError};
 pub use lighting::{LightingMethod, set_keyboard_color, set_keyboard_color_with};
+pub use remap::{
+    RemappableControl, apply_key_remap, get_cid_reporting, read_remappable_controls,
+    set_cid_reporting,
+};
 pub use shared::{SharedChannel, set_dpi_on, set_smartshift_on, toggle_smartshift_on};
 pub use smartshift::{
     get_smartshift_status, set_smartshift, set_smartshift_sensitivity, toggle_smartshift,

@@ -3,6 +3,8 @@
 //! [`GestureOwner`], plus
 //! their serde `default_*` / `deserialize_*` helpers.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::binding::ButtonId;
@@ -276,6 +278,27 @@ where
         .unwrap_or(color.as_str())
         .parse()
         .unwrap_or(Rgb::WHITE))
+}
+
+/// Per-device key remap: a map from a HID++ `ControlId` (the source key, e.g.
+/// `0x00e4` for the Prev Track Fn-row key) to a target `ControlId` (the HID
+/// usage the key should emit instead). Applied via HID++ `0x1b04`
+/// `setCidReporting`; the remap is volatile (session-based, cleared on
+/// power-cycle), so the agent re-applies it on reconnect.
+///
+/// Crosses the agent↔GUI IPC (`set_key_remap`), so its serialized shape is
+/// wire format — changes require a `PROTOCOL_VERSION` bump (guarded by
+/// `openlogi-agent-core/tests/wire_format.rs`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeyRemap(pub BTreeMap<u16, u16>);
+
+impl KeyRemap {
+    /// `skip_serializing_if` helper: true when no remaps are set, so an empty
+    /// map stays out of `config.toml`.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 
 /// Vertical wheel reporting resolution for HID++ `0x2121 HiResWheel`.

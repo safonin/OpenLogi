@@ -100,6 +100,10 @@ pub enum HidppOperation {
     ReadWheelMode,
     /// Write and verify the native HiResWheel mode.
     WriteWheelMode,
+    /// Read a reprogrammable control's reporting/remap state.
+    ReadRemap,
+    /// Write a reprogrammable control's remap (setCidReporting).
+    WriteRemap,
 }
 
 /// HID++ feature error kind in a serializable wire-safe form.

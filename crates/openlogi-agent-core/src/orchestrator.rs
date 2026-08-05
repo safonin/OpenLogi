@@ -269,7 +269,10 @@ impl Orchestrator {
             );
         }
         if let Some(lighting) = self.config.lighting(key).filter(|l| l.enabled) {
-            crate::hardware::set_lighting_in_background(Some(route), &lighting);
+            crate::hardware::set_lighting_in_background(Some(route.clone()), &lighting);
+        }
+        if let Some(remap) = self.config.key_remap(key) {
+            crate::hardware::set_key_remap_in_background(Some(route), &remap);
         }
     }
 

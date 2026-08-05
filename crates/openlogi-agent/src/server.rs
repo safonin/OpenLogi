@@ -16,10 +16,11 @@ use openlogi_agent_core::ipc::{
 };
 use openlogi_agent_core::orchestrator::{Orchestrator, SharedRuntime};
 use openlogi_agent_core::{hardware, transport};
-use openlogi_core::config::{Config, Lighting};
+use openlogi_core::config::{Config, KeyRemap, Lighting};
 use openlogi_core::device::DeviceInventory;
 use openlogi_hid::{
-    DeviceRoute, DpiInfo, ReceiverSelector, SmartShiftMode, SmartShiftStatus, WriteError,
+    DeviceRoute, DpiInfo, ReceiverSelector, RemappableControl, SmartShiftMode, SmartShiftStatus,
+    WriteError,
 };
 
 use crate::pairing::PairingManager;
@@ -120,6 +121,23 @@ impl Agent for AgentServer {
         route: DeviceRoute,
     ) -> Result<SmartShiftStatus, WriteError> {
         hardware::read_smartshift(&route).await
+    }
+
+    async fn set_key_remap(
+        self,
+        _: Context,
+        route: DeviceRoute,
+        remap: KeyRemap,
+    ) -> Result<(), WriteError> {
+        hardware::apply_key_remap(&route, &remap).await
+    }
+
+    async fn read_remappable_controls(
+        self,
+        _: Context,
+        route: DeviceRoute,
+    ) -> Result<Vec<RemappableControl>, WriteError> {
+        hardware::read_remappable_controls(&route).await
     }
 
     async fn request_accessibility_prompt(self, _: Context) {

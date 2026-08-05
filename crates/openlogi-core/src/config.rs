@@ -22,7 +22,7 @@ mod settings;
 pub use device::{DeviceConfig, DeviceIdentity};
 pub use settings::{
     AppSettings, Appearance, AssetSourcePreference, DEFAULT_THUMBWHEEL_SENSITIVITY, GestureOwner,
-    Lighting, MAX_THUMBWHEEL_SENSITIVITY, MIN_THUMBWHEEL_SENSITIVITY,
+    KeyRemap, Lighting, MAX_THUMBWHEEL_SENSITIVITY, MIN_THUMBWHEEL_SENSITIVITY,
     SMARTSHIFT_AUTO_DISENGAGE_DEFAULT, SMARTSHIFT_MIN_AUTO_DISENGAGE, ScrollResolution, SmartShift,
     WheelMode,
 };
@@ -497,6 +497,22 @@ impl Config {
             .lighting = Some(lighting);
     }
 
+    /// The key remap map for `device_key`, or `None` if unset.
+    #[must_use]
+    pub fn key_remap(&self, device_key: &str) -> Option<KeyRemap> {
+        self.devices
+            .get(device_key)
+            .and_then(|d| d.key_remap.clone())
+    }
+
+    /// Replace the key remap for `device_key`.
+    pub fn set_key_remap(&mut self, device_key: &str, remap: KeyRemap) {
+        self.devices
+            .entry(device_key.to_string())
+            .or_default()
+            .key_remap = Some(remap);
+    }
+
     /// The committed sensor DPI for `device_key`, or `None` if never set.
     #[must_use]
     pub fn dpi(&self, device_key: &str) -> Option<u32> {
@@ -895,6 +911,7 @@ mod tests {
                 lighting: false,
                 scroll_inversion: false,
                 hires_wheel: true,
+                key_remap: false,
             },
         };
         cfg.set_device_identity("2b034", mouse.clone());

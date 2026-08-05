@@ -13,11 +13,12 @@ use std::collections::BTreeMap;
 
 use gpui::{App, Global};
 use openlogi_core::config::{
-    AppSettings, Appearance, AssetSourcePreference, Config, DeviceIdentity, Lighting,
+    AppSettings, Appearance, AssetSourcePreference, Config, DeviceIdentity, KeyRemap, Lighting,
 };
 use openlogi_core::device::{DeviceInventory, DeviceModelInfo};
 use openlogi_hid::{
-    DeviceRoute, DpiCapabilities, DpiInfo, SmartShiftMode, SmartShiftStatus, WriteError,
+    DeviceRoute, DpiCapabilities, DpiInfo, RemappableControl, SmartShiftMode, SmartShiftStatus,
+    WriteError,
 };
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
@@ -26,7 +27,7 @@ mod devices;
 mod load;
 
 pub use devices::DeviceRecord;
-pub use load::{DpiStatus, Load, SmartShiftLoad};
+pub use load::{DpiStatus, Load, RemapControlsLoad, SmartShiftLoad};
 
 /// Result of confirming a SmartShift write by reading the value back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,6 +131,7 @@ pub struct AppState {
     /// [`Self::dpi_data`]; the device persists the values itself, so this is a
     /// read/write cache, not a source of truth saved to disk.
     smartshift_data: LazyDeviceData<SmartShiftStatus>,
+    remap_controls_data: LazyDeviceData<Vec<RemappableControl>>,
     /// Devices whose SmartShift was just written optimistically and still need a
     /// confirming re-read, keyed by [`DeviceRecord::config_key`]. A fire-and-
     /// forget write can be rejected/timed-out by a sleeping device, so the panel
@@ -203,6 +205,7 @@ impl AppState {
             dpi_data: LazyDeviceData::default(),
             inventory_misses: BTreeMap::new(),
             smartshift_data: LazyDeviceData::default(),
+            remap_controls_data: LazyDeviceData::default(),
             smartshift_pending_confirm: BTreeMap::new(),
             next_smartshift_write_id: 0,
             smartshift_write_status: BTreeMap::new(),
@@ -444,6 +447,7 @@ impl AppState {
         for key in &rerouted {
             self.dpi_data.remove(key);
             self.smartshift_data.remove(key);
+            self.remap_controls_data.remove(key);
             self.smartshift_pending_confirm.remove(key);
             self.smartshift_write_status.remove(key);
         }
@@ -454,6 +458,7 @@ impl AppState {
         };
         self.dpi_data.retain_present(present);
         self.smartshift_data.retain_present(present);
+        self.remap_controls_data.retain_present(present);
         self.smartshift_pending_confirm
             .retain(|key, _| present(key));
         self.smartshift_write_status.retain(|key, _| present(key));
@@ -1068,6 +1073,90 @@ impl AppState {
             .unwrap_or_default()
     }
 
+    /// The stored key remap for the active device, or empty when unset.
+    pub fn key_remap(&self) -> KeyRemap {
+        self.current_record()
+            .and_then(DeviceRecord::persistent_config_key)
+            .and_then(|key| self.config.key_remap(key))
+            .unwrap_or_default()
+    }
+
+    pub fn current_remap_controls_status(&self) -> RemapControlsLoad {
+        self.current_record()
+            .map_or(RemapControlsLoad::Unknown, |record| {
+                self.remap_controls_data.status(&record.config_key)
+            })
+    }
+
+    pub fn current_remap_controls_unqueried(&self) -> bool {
+        self.current_record()
+            .is_some_and(|record| self.remap_controls_data.unqueried(&record.config_key))
+    }
+
+    pub fn mark_remap_controls_loading(&mut self, key: &str) {
+        self.remap_controls_data.mark_loading(key);
+    }
+
+    pub fn clear_remap_controls_loading(&mut self, key: &str) {
+        self.remap_controls_data.clear_loading(key);
+    }
+
+    pub fn retry_active_remap_controls(&mut self) {
+        if let Some(key) = self
+            .current_record()
+            .map(|record| record.config_key.clone())
+        {
+            self.remap_controls_data.retry(&key);
+        }
+    }
+
+    pub fn store_remap_controls(
+        &mut self,
+        key: String,
+        route: &DeviceRoute,
+        result: Result<Vec<RemappableControl>, WriteError>,
+    ) {
+        let matches_route = self
+            .device_list
+            .iter()
+            .any(|record| record.config_key == key && record.route.as_ref() == Some(route));
+        let still_present = self
+            .device_list
+            .iter()
+            .any(|record| record.config_key == key);
+        self.remap_controls_data.store(
+            key,
+            result,
+            remap_error_is_permanent,
+            matches_route,
+            still_present,
+            "KeyRemap",
+        );
+    }
+
+    /// Persist a new key remap for the active device and push it to the
+    /// hardware (best-effort). No-op when no device is selected.
+    pub fn commit_key_remap(&mut self, remap: KeyRemap) {
+        let Some(record) = self.current_record() else {
+            debug!("no active device — key remap change ignored");
+            return;
+        };
+        let key = record.persistent_config_key().map(str::to_string);
+        let target = record.route.clone();
+        if let Some(route) = target {
+            self.send_ipc(crate::ipc_client::Command::SetKeyRemap(
+                route,
+                remap.clone(),
+            ));
+        }
+        let Some(key) = key else {
+            debug!("transient device key remap applied without persistence");
+            return;
+        };
+        self.config.set_key_remap(&key, remap);
+        self.persist_and_reload("key_remap");
+    }
+
     /// The stored lighting config for `key`, or `None` when unset.
     #[must_use]
     pub fn lighting_for(&self, key: &str) -> Option<Lighting> {
@@ -1496,6 +1585,10 @@ fn dpi_error_is_permanent(error: &WriteError) -> bool {
 /// supported" reply (the device lacks `0x2111`) never changes, so stop
 /// probing. Everything else (timeouts, busy device) is transient.
 fn smartshift_error_is_permanent(error: &WriteError) -> bool {
+    matches!(error, WriteError::FeatureUnsupported { .. })
+}
+
+fn remap_error_is_permanent(error: &WriteError) -> bool {
     matches!(error, WriteError::FeatureUnsupported { .. })
 }
 

@@ -26,7 +26,8 @@ use openlogi_agent_core::ipc::{
 use openlogi_core::config::Lighting;
 use openlogi_core::device::DeviceInventory;
 use openlogi_hid::{
-    DeviceRoute, DpiInfo, ReceiverSelector, SmartShiftMode, SmartShiftStatus, WriteError,
+    DeviceRoute, DpiInfo, ReceiverSelector, RemappableControl, SmartShiftMode, SmartShiftStatus,
+    WriteError,
 };
 use tarpc::client;
 use tarpc::context;
@@ -80,10 +81,16 @@ pub enum Command {
     SetDpi(DeviceRoute, u32),
     SetLighting(DeviceRoute, Lighting),
     SetSmartShift(DeviceRoute, SmartShiftMode, u8, u8),
+    SetKeyRemap(DeviceRoute, openlogi_core::config::KeyRemap),
     ReadDpi(DeviceRoute, oneshot::Sender<Result<DpiInfo, WriteError>>),
     ReadSmartShift(
         DeviceRoute,
         oneshot::Sender<Result<SmartShiftStatus, WriteError>>,
+    ),
+    /// Read the device's divertable controls for the interactive remap panel.
+    ReadRemappableControls(
+        DeviceRoute,
+        oneshot::Sender<Result<Vec<RemappableControl>, WriteError>>,
     ),
     ReloadConfig,
     /// Ask the agent to fire the macOS Accessibility prompt. The agent owns the
@@ -553,11 +560,19 @@ async fn handle(
         Command::SetSmartShift(route, mode, auto, torque) => {
             log_apply(client.set_smartshift(ctx, route, mode, auto, torque).await)?;
         }
+        Command::SetKeyRemap(route, remap) => {
+            log_apply(client.set_key_remap(ctx, route, remap).await)?;
+        }
         Command::ReadDpi(route, reply) => {
             let _ = reply.send(rpc_result(client.read_dpi(ctx, route).await)?);
         }
         Command::ReadSmartShift(route, reply) => {
             let _ = reply.send(rpc_result(client.read_smartshift(ctx, route).await)?);
+        }
+        Command::ReadRemappableControls(route, reply) => {
+            let _ = reply.send(rpc_result(
+                client.read_remappable_controls(ctx, route).await,
+            )?);
         }
         Command::ReloadConfig => client.reload_config(ctx).await.map_err(|_| ())?,
         Command::RequestAccessibilityPrompt => client
@@ -627,6 +642,9 @@ fn reply_disconnected(pairing_tx: &mpsc::UnboundedSender<PairingUpdate>, cmd: Co
             let _ = reply.send(Err(WriteError::AgentUnavailable));
         }
         Command::ReadSmartShift(_, reply) => {
+            let _ = reply.send(Err(WriteError::AgentUnavailable));
+        }
+        Command::ReadRemappableControls(_, reply) => {
             let _ = reply.send(Err(WriteError::AgentUnavailable));
         }
         Command::StartPairing(_) | Command::PairDevice(_) => {
