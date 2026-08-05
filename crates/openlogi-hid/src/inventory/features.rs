@@ -5,7 +5,8 @@ use hidpp::{
     device::Device,
     feature::hires_wheel::HiResWheelFeature,
     feature::{
-        CreatableFeature, device_information::DeviceInformationFeature,
+        CreatableFeature, battery_status::BatteryStatusFeature,
+        device_information::DeviceInformationFeature,
         device_type_and_name::DeviceTypeAndNameFeature, unified_battery::UnifiedBatteryFeature,
     },
 };
@@ -15,8 +16,21 @@ use openlogi_core::device::{
 use tracing::debug;
 
 use crate::mappings::{
-    map_battery_level, map_battery_status, map_device_type, normalize_serial_number,
+    map_battery_level, map_battery_status, map_device_type, map_legacy_battery,
+    normalize_serial_number,
 };
+
+/// Which battery feature a device exposes, plus its runtime index in the
+/// feature table. Lets a cache hit re-read the battery through the right
+/// feature without re-walking the table.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum BatterySource {
+    /// `UnifiedBattery` (`0x1004`) — the modern percentage + charge-state path.
+    Unified(u8),
+    /// `BatteryStatus` (`0x1000`) — the legacy percentage + coarse-status path
+    /// used by devices like the MX Keys.
+    Legacy(u8),
+}
 
 /// Everything a single device probe yields. Any field is `None` when the
 /// device doesn't expose that feature or the read failed.
@@ -33,37 +47,54 @@ pub(super) struct ProbedFeatures {
     pub(super) identity_incomplete: bool,
 }
 
-/// Read just the battery by addressing the `UnifiedBattery` feature at its
-/// known runtime `feature_index` — one round-trip, with no `Device::new` ping
-/// and no feature-table walk. This is both the full probe's battery read (the
-/// walk just produced the index) and the cheap per-tick refresh for cache hits.
+/// Read just the battery by addressing the resolved battery feature at its
+/// known runtime index — one round-trip, with no `Device::new` ping and no
+/// feature-table walk. This is both the full probe's battery read (the walk
+/// just produced the source) and the cheap per-tick refresh for cache hits.
 /// `None` when the device doesn't answer (asleep, switched hosts).
 pub(super) async fn read_battery(
     channel: &Arc<HidppChannel>,
     slot: u8,
-    feature_index: u8,
+    source: BatterySource,
 ) -> Option<BatteryInfo> {
-    let feature = UnifiedBatteryFeature::new(Arc::clone(channel), slot, feature_index);
-    feature
-        .get_battery_info()
-        .await
-        .ok()
-        .map(|info| BatteryInfo {
-            percentage: info.charging_percentage,
-            level: map_battery_level(info.level),
-            status: map_battery_status(info.status),
-        })
+    match source {
+        BatterySource::Unified(feature_index) => {
+            let feature = UnifiedBatteryFeature::new(Arc::clone(channel), slot, feature_index);
+            feature
+                .get_battery_info()
+                .await
+                .ok()
+                .map(|info| BatteryInfo {
+                    percentage: info.charging_percentage,
+                    level: map_battery_level(info.level),
+                    status: map_battery_status(info.status),
+                })
+        }
+        BatterySource::Legacy(feature_index) => {
+            let feature = BatteryStatusFeature::new(Arc::clone(channel), slot, feature_index);
+            feature
+                .get_battery_level_status()
+                .await
+                .ok()
+                .map(map_legacy_battery)
+        }
+    }
 }
 
-/// Runtime index of the `UnifiedBattery` feature in an enumerated feature-ID
-/// table, for [`read_battery`]. The table is 1-based (index 0 is the implicit
-/// root feature, which enumeration omits).
-pub(super) fn battery_feature_index(ids: impl IntoIterator<Item = u16>) -> Option<u8> {
-    ids.into_iter()
-        .position(|id| id == UnifiedBatteryFeature::ID)
-        // A feature table holds at most `u8::MAX` entries (its count is a u8),
-        // so the 1-based index always fits.
-        .and_then(|pos| u8::try_from(pos + 1).ok())
+/// Resolve which battery feature a device exposes (preferring the modern
+/// `UnifiedBattery` `0x1004`, falling back to the legacy `BatteryStatus`
+/// `0x1000`), plus its 1-based runtime index in the enumerated feature-ID table.
+/// `None` when the device exposes neither.
+pub(super) fn battery_feature_index(ids: impl IntoIterator<Item = u16>) -> Option<BatterySource> {
+    let ids: Vec<u16> = ids.into_iter().collect();
+    let index_of = |target: u16| {
+        ids.iter()
+            .position(|&id| id == target)
+            .and_then(|pos| u8::try_from(pos + 1).ok())
+    };
+    index_of(UnifiedBatteryFeature::ID)
+        .map(BatterySource::Unified)
+        .or_else(|| index_of(BatteryStatusFeature::ID).map(BatterySource::Legacy))
 }
 
 /// Open a HID++ session for `slot` and read everything we care about (battery,
@@ -73,14 +104,14 @@ pub(super) fn battery_feature_index(ids: impl IntoIterator<Item = u16>) -> Optio
 /// `enumerate_features` — the feature table is the Vec that enumeration already
 /// returns, so capabilities cost no extra round-trip.
 ///
-/// Also returns the `UnifiedBattery` runtime index found by the walk, so later
-/// ticks can refresh the battery without repeating it.
+/// Also returns the resolved battery feature source found by the walk, so
+/// later ticks can refresh the battery without repeating it.
 ///
 /// Only online, responsive devices reach here.
 pub(super) async fn probe_features(
     channel: &Arc<HidppChannel>,
     slot: u8,
-) -> (ProbedFeatures, Option<u8>) {
+) -> (ProbedFeatures, Option<BatterySource>) {
     let mut device = match Device::new(Arc::clone(channel), slot).await {
         Ok(d) => d,
         Err(e) => {
@@ -113,7 +144,7 @@ pub(super) async fn probe_features(
     }
 
     let battery = match battery_index {
-        Some(feature_index) => read_battery(channel, slot, feature_index).await,
+        Some(source) => read_battery(channel, slot, source).await,
         None => None,
     };
 
@@ -187,18 +218,42 @@ pub(super) async fn probe_features(
 mod tests {
     use hidpp::feature::{CreatableFeature as _, unified_battery::UnifiedBatteryFeature};
 
-    use super::battery_feature_index;
+    use super::{BatterySource, battery_feature_index};
 
     #[test]
-    fn battery_index_is_one_based_in_the_enumerated_table() {
+    fn unified_battery_index_is_one_based_in_the_enumerated_table() {
         // `enumerate_features` omits the root feature (index 0), so the first
         // enumerated entry sits at runtime index 1.
         let table = [0x0001, UnifiedBatteryFeature::ID, 0x2201];
-        assert_eq!(battery_feature_index(table), Some(2));
+        assert_eq!(
+            battery_feature_index(table),
+            Some(BatterySource::Unified(2))
+        );
         assert_eq!(
             battery_feature_index([UnifiedBatteryFeature::ID]),
-            Some(1),
+            Some(BatterySource::Unified(1)),
             "first entry maps to index 1, not 0"
+        );
+    }
+
+    #[test]
+    fn legacy_battery_is_used_when_unified_is_absent() {
+        // The MX Keys exposes 0x1000 (legacy) but not 0x1004 (unified).
+        let table = [0x0001, 0x1b04, 0x1000, 0x40a3];
+        assert_eq!(
+            battery_feature_index(table),
+            Some(BatterySource::Legacy(3)),
+            "legacy 0x1000 at enumerated position 2 -> runtime index 3"
+        );
+    }
+
+    #[test]
+    fn unified_is_preferred_over_legacy_when_both_present() {
+        let table = [0x1000, UnifiedBatteryFeature::ID];
+        assert_eq!(
+            battery_feature_index(table),
+            Some(BatterySource::Unified(2)),
+            "0x1004 wins even when 0x1000 appears first"
         );
     }
 

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use hidpp::channel::HidppChannel;
 
-use super::features::{ProbedFeatures, probe_features, read_battery};
+use super::features::{BatterySource, ProbedFeatures, probe_features, read_battery};
 
 /// How many `enumerate` ticks a device's probe is reused before a fresh read.
 /// The expensive part of a probe (the `enumerate_features` feature-table walk)
@@ -42,11 +42,11 @@ pub(super) const CACHE_MISS_GRACE: u8 = 3;
 #[derive(Clone)]
 pub(super) struct Cached {
     pub(super) probe: ProbedFeatures,
-    /// Runtime index of the `UnifiedBattery` feature in this device's feature
-    /// table, captured by the full probe. Lets cache hits re-read the volatile
-    /// battery in one round-trip — no `Device::new` ping, no table walk.
-    /// `None` when the device exposes no `0x1004`.
-    pub(super) battery_index: Option<u8>,
+    /// Runtime source of the battery feature (`0x1004` or `0x1000` fallback)
+    /// in this device's feature table, captured by the full probe. Lets cache
+    /// hits re-read the volatile battery in one round-trip — no `Device::new`
+    /// ping, no table walk. `None` when the device exposes neither.
+    pub(super) battery_index: Option<BatterySource>,
     pub(super) probed_tick: u64,
 }
 
@@ -127,9 +127,9 @@ pub(super) async fn probe_or_reuse(
             // index and fold the reading back into the cache. A failed read
             // (asleep, mid-host-switch) keeps the last-known value.
             if online
-                && let Some(feature_index) = c.battery_index
+                && let Some(source) = c.battery_index
                 && let Some(key) = id.clone()
-                && let Some(battery) = read_battery(channel, index, feature_index).await
+                && let Some(battery) = read_battery(channel, index, source).await
             {
                 let mut entry = c.clone();
                 entry.probe.battery = Some(battery);

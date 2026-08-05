@@ -9,7 +9,7 @@ use hidpp::feature::unified_battery::{
 };
 use hidpp::receiver::bolt::DeviceKind as BoltDeviceKind;
 use hidpp::receiver::unifying::DeviceKind as UnifyingDeviceKind;
-use openlogi_core::device::{BatteryLevel, BatteryStatus, DeviceKind};
+use openlogi_core::device::{BatteryInfo, BatteryLevel, BatteryStatus, DeviceKind};
 
 /// Trim NUL padding and whitespace from a `DeviceInformation` serial; an
 /// all-padding serial collapses to `None`.
@@ -116,9 +116,107 @@ pub(crate) fn map_battery_status(status: HidppBatteryStatus) -> BatteryStatus {
     }
 }
 
+/// Map the legacy `0x1000` BatteryStatus into the core type. Unlike UnifiedBattery,
+/// `0x1000` reports a percentage directly, so the level bucket is derived from it.
+pub(crate) fn map_legacy_battery(
+    status: hidpp::feature::battery_status::BatteryLevelStatus,
+) -> BatteryInfo {
+    map_legacy_battery_fields(status.current_level, status.status)
+}
+
+fn map_legacy_battery_fields(
+    percentage: u8,
+    legacy_status: hidpp::feature::battery_status::BatteryStatus,
+) -> BatteryInfo {
+    use hidpp::feature::battery_status::BatteryStatus as Legacy;
+    let level = if percentage >= 90 {
+        BatteryLevel::Full
+    } else if percentage >= 30 {
+        BatteryLevel::Good
+    } else if percentage > 5 {
+        BatteryLevel::Low
+    } else {
+        BatteryLevel::Critical
+    };
+    let status = match legacy_status {
+        Legacy::Discharging => BatteryStatus::Discharging,
+        Legacy::Recharging => BatteryStatus::Charging,
+        Legacy::SlowRecharge => BatteryStatus::ChargingSlow,
+        Legacy::ChargeComplete => BatteryStatus::Full,
+        Legacy::InvalidBattery | Legacy::ThermalError | Legacy::Error => BatteryStatus::Error,
+        _ => BatteryStatus::Unknown,
+    };
+    BatteryInfo {
+        percentage,
+        level,
+        status,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{DeviceKind, UnifyingDeviceKind, map_unifying_kind, resolve_device_kind};
+    use hidpp::feature::battery_status::BatteryStatus as LegacyBatteryStatus;
+    use openlogi_core::device::{BatteryLevel, BatteryStatus};
+
+    use super::{
+        DeviceKind, UnifyingDeviceKind, map_legacy_battery_fields, map_unifying_kind,
+        resolve_device_kind,
+    };
+
+    #[test]
+    fn legacy_battery_maps_level_boundaries_and_statuses() {
+        let cases = [
+            (
+                100,
+                LegacyBatteryStatus::Discharging,
+                BatteryLevel::Full,
+                BatteryStatus::Discharging,
+            ),
+            (
+                90,
+                LegacyBatteryStatus::Recharging,
+                BatteryLevel::Full,
+                BatteryStatus::Charging,
+            ),
+            (
+                30,
+                LegacyBatteryStatus::SlowRecharge,
+                BatteryLevel::Good,
+                BatteryStatus::ChargingSlow,
+            ),
+            (
+                6,
+                LegacyBatteryStatus::ChargeComplete,
+                BatteryLevel::Low,
+                BatteryStatus::Full,
+            ),
+            (
+                5,
+                LegacyBatteryStatus::InvalidBattery,
+                BatteryLevel::Critical,
+                BatteryStatus::Error,
+            ),
+            (
+                0,
+                LegacyBatteryStatus::ThermalError,
+                BatteryLevel::Critical,
+                BatteryStatus::Error,
+            ),
+            (
+                42,
+                LegacyBatteryStatus::Error,
+                BatteryLevel::Good,
+                BatteryStatus::Error,
+            ),
+        ];
+
+        for (percentage, legacy_status, expected_level, expected_status) in cases {
+            let mapped = map_legacy_battery_fields(percentage, legacy_status);
+            assert_eq!(mapped.percentage, percentage);
+            assert_eq!(mapped.level, expected_level);
+            assert_eq!(mapped.status, expected_status);
+        }
+    }
 
     #[test]
     fn probe_overrides_a_misreporting_register() {
