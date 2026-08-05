@@ -26,7 +26,7 @@ use openlogi_agent_core::ipc::{
     AgentRequest, AgentSnapshot, AgentStatus, FoundDevice, InventoryHealth, MonitorEvent,
     PROTOCOL_VERSION, PairingCommandError, PairingFailure, PairingUpdate,
 };
-use openlogi_core::config::Lighting;
+use openlogi_core::config::{DisabledKeys, Lighting};
 use openlogi_core::device::{
     BatteryInfo, BatteryLevel, BatteryStatus, Capabilities, DeviceInventory, DeviceKind,
     DeviceModelInfo, DeviceTransports, PairedDevice, ReceiverInfo,
@@ -61,7 +61,7 @@ fn assert_wire<T: serde::Serialize>(value: &T, golden: &str) {
 /// that makes that visible in the same diff.
 #[test]
 fn protocol_version_is_pinned() {
-    assert_eq!(PROTOCOL_VERSION, 10);
+    assert_eq!(PROTOCOL_VERSION, 11);
 }
 
 /// tarpc encodes the request enum's variant index, so trait *method order* is
@@ -83,6 +83,27 @@ fn request_variant_order() {
     assert_wire(&AgentRequest::NextPairing {}, "0d");
     assert_wire(&AgentRequest::Snapshot {}, "0e");
     assert_wire(&AgentRequest::PollEventMonitor {}, "0f");
+    let route = DeviceRoute::Bolt {
+        receiver_uid: "F00DCAFE".into(),
+        slot: 1,
+    };
+    assert_wire(
+        &AgentRequest::SetDisabledKeys {
+            route: route.clone(),
+            keys: DisabledKeys {
+                caps_lock: true,
+                num_lock: false,
+                scroll_lock: true,
+                insert: false,
+                windows: true,
+            },
+        },
+        "1000084630304443414645010100010001",
+    );
+    assert_wire(
+        &AgentRequest::ReadDisabledKeys { route },
+        "110008463030444341464501",
+    );
 }
 
 #[test]
@@ -178,12 +199,13 @@ fn device_inventory() {
                 lighting: false,
                 scroll_inversion: false,
                 hires_wheel: true,
+                disable_keys: false,
             }),
         }],
     }];
     assert_wire(
         &inventory,
-        "010d426f6c74205265636569766572fb6d04fb48c501084630304443414645010101094d58204d535452335301fb34b000010150020001030106323134304c5a0102030400010100fb34b0fb8240000b010101000001",
+        "010d426f6c74205265636569766572fb6d04fb48c501084630304443414645010101094d58204d535452335301fb34b000010150020001030106323134304c5a0102030400010100fb34b0fb8240000b01010100000100",
     );
 }
 
@@ -286,7 +308,42 @@ fn device_settings_payloads() {
         },
         "010638303030666650",
     );
+}
 
+#[test]
+fn disabled_keys_payload() {
+    // DisabledKeys (protocol v11): five bools.
+    assert_wire(
+        &DisabledKeys {
+            caps_lock: true,
+            num_lock: false,
+            scroll_lock: false,
+            insert: true,
+            windows: false,
+        },
+        "0100000100",
+    );
+}
+
+#[test]
+fn hidpp_operation_variant_order() {
+    // The two new HID++ operations appended in v11 carry discriminants 10 and 11.
+    assert_wire(
+        &WriteError::RequestTimedOut {
+            operation: HidppOperation::ReadDisableKeys,
+        },
+        "080a",
+    );
+    assert_wire(
+        &WriteError::RequestTimedOut {
+            operation: HidppOperation::WriteDisableKeys,
+        },
+        "080b",
+    );
+}
+
+#[test]
+fn receiver_selector() {
     assert_wire(
         &ReceiverSelector::BoltUid("F00DCAFE".into()),
         "01084630304443414645",

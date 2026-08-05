@@ -15,7 +15,7 @@
 use std::future::Future;
 use std::time::Duration;
 
-use openlogi_core::config::Lighting;
+use openlogi_core::config::{DisabledKeys, Lighting};
 use openlogi_hid::{
     CaptureChannel, DeviceRoute, DpiInfo, HidppFeatureErrorKind, HidppOperation, ScrollResolution,
     SharedChannel, SmartShiftMode, SmartShiftStatus, WriteError,
@@ -682,6 +682,27 @@ pub async fn read_smartshift(route: &DeviceRoute) -> Result<SmartShiftStatus, Wr
     timed(
         HidppOperation::ReadSmartShift,
         openlogi_hid::get_smartshift_status(route),
+    )
+    .await
+}
+
+/// Apply a set of disabled keys to the device at `route`.
+pub async fn apply_disabled_keys(
+    route: &DeviceRoute,
+    keys: DisabledKeys,
+) -> Result<(), WriteError> {
+    timed(
+        HidppOperation::WriteDisableKeys,
+        openlogi_hid::set_disabled_keys(route, keys),
+    )
+    .await
+}
+
+/// Read the set of currently-disabled keys from `route`.
+pub async fn read_disabled_keys(route: &DeviceRoute) -> Result<DisabledKeys, WriteError> {
+    timed(
+        HidppOperation::ReadDisableKeys,
+        openlogi_hid::get_disabled_keys(route),
     )
     .await
 }

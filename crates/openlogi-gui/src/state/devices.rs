@@ -557,6 +557,7 @@ mod tests {
                 lighting: false,
                 scroll_inversion: false,
                 hires_wheel: false,
+                disable_keys: false,
             },
             model_info: None,
             codename: None,

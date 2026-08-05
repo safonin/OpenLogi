@@ -21,8 +21,8 @@ mod settings;
 
 pub use device::{DeviceConfig, DeviceIdentity};
 pub use settings::{
-    AppSettings, Appearance, AssetSourcePreference, DEFAULT_THUMBWHEEL_SENSITIVITY, GestureOwner,
-    Lighting, MAX_THUMBWHEEL_SENSITIVITY, MIN_THUMBWHEEL_SENSITIVITY,
+    AppSettings, Appearance, AssetSourcePreference, DEFAULT_THUMBWHEEL_SENSITIVITY, DisabledKeys,
+    GestureOwner, Lighting, MAX_THUMBWHEEL_SENSITIVITY, MIN_THUMBWHEEL_SENSITIVITY,
     SMARTSHIFT_AUTO_DISENGAGE_DEFAULT, SMARTSHIFT_MIN_AUTO_DISENGAGE, ScrollResolution, SmartShift,
     WheelMode,
 };
@@ -497,6 +497,20 @@ impl Config {
             .lighting = Some(lighting);
     }
 
+    /// The disabled-keys config for `device_key`, or `None` if unset.
+    #[must_use]
+    pub fn disabled_keys(&self, device_key: &str) -> Option<DisabledKeys> {
+        self.devices.get(device_key).and_then(|d| d.disabled_keys)
+    }
+
+    /// Replace the disabled-keys config for `device_key`.
+    pub fn set_disabled_keys(&mut self, device_key: &str, keys: DisabledKeys) {
+        self.devices
+            .entry(device_key.to_string())
+            .or_default()
+            .disabled_keys = Some(keys);
+    }
+
     /// The committed sensor DPI for `device_key`, or `None` if never set.
     #[must_use]
     pub fn dpi(&self, device_key: &str) -> Option<u32> {
@@ -895,6 +909,7 @@ mod tests {
                 lighting: false,
                 scroll_inversion: false,
                 hires_wheel: true,
+                disable_keys: false,
             },
         };
         cfg.set_device_identity("2b034", mouse.clone());

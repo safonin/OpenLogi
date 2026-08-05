@@ -278,6 +278,43 @@ where
         .unwrap_or(Rgb::WHITE))
 }
 
+/// Per-device disabled keys (HID++ `0x4521` DisableKeys): which of the fixed
+/// set of lock/system keys are disabled. One bool per disableable key.
+///
+/// Crosses the agent↔GUI IPC (`set_disabled_keys`), so field order is wire
+/// format — changes require a `PROTOCOL_VERSION` bump (guarded by
+/// `openlogi-agent-core/tests/wire_format.rs`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "one bool per disableable key; mirrors the HID++ bitfield"
+)]
+pub struct DisabledKeys {
+    /// Caps Lock.
+    #[serde(default)]
+    pub caps_lock: bool,
+    /// Num Lock.
+    #[serde(default)]
+    pub num_lock: bool,
+    /// Scroll Lock.
+    #[serde(default)]
+    pub scroll_lock: bool,
+    /// Insert.
+    #[serde(default)]
+    pub insert: bool,
+    /// Windows / Start key.
+    #[serde(default)]
+    pub windows: bool,
+}
+
+impl DisabledKeys {
+    /// `skip_serializing_if` helper: true when no keys are disabled.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 /// Vertical wheel reporting resolution for HID++ `0x2121 HiResWheel`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

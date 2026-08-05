@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::settings::{
-    GestureOwner, Lighting, ScrollResolution, SmartShift, deserialize_gesture_owner,
+    DisabledKeys, GestureOwner, Lighting, ScrollResolution, SmartShift, deserialize_gesture_owner,
 };
 use crate::binding::{Action, Binding, ButtonId, GestureDirection};
 use crate::device::{Capabilities, DeviceKind, DeviceModelInfo};
@@ -97,6 +97,10 @@ pub struct DeviceConfig {
     /// until the user changes it, so it stays out of `config.toml` otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lighting: Option<Lighting>,
+    /// Per-device disabled keys (HID++ 0x4521). `None` until the user changes
+    /// it.
+    #[serde(default, skip_serializing_if = "disabled_keys_is_empty_or_none")]
+    pub disabled_keys: Option<DisabledKeys>,
     /// Per-device SmartShift wheel configuration, re-applied on reconnect for
     /// the same reason as [`Self::dpi`]. `None` until the user changes it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -123,6 +127,17 @@ pub struct DeviceConfig {
 )]
 fn is_false(b: &bool) -> bool {
     !*b
+}
+
+/// `skip_serializing_if` helper for `Option<DisabledKeys>`: skip when `None`
+/// or when no keys are disabled.
+#[allow(
+    clippy::ref_option,
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's skip_serializing_if requires &Option<T>"
+)]
+fn disabled_keys_is_empty_or_none(keys: &Option<DisabledKeys>) -> bool {
+    keys.as_ref().is_none_or(DisabledKeys::is_empty)
 }
 
 /// Deserialize-only shim that folds the pre-v2 `button_bindings` +
@@ -157,6 +172,8 @@ struct RawDeviceConfig {
     dpi: Option<u32>,
     #[serde(default)]
     lighting: Option<Lighting>,
+    #[serde(default)]
+    disabled_keys: Option<DisabledKeys>,
     #[serde(default)]
     smartshift: Option<SmartShift>,
     #[serde(default)]
@@ -204,6 +221,7 @@ impl From<RawDeviceConfig> for DeviceConfig {
             dpi_presets: raw.dpi_presets,
             dpi: raw.dpi,
             lighting: raw.lighting,
+            disabled_keys: raw.disabled_keys,
             smartshift: raw.smartshift,
             invert_scroll: raw.invert_scroll,
             scroll_resolution: raw.scroll_resolution,

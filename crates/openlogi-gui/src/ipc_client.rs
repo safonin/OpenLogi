@@ -23,7 +23,7 @@ use openlogi_agent_core::ipc::{
     AgentClient, AgentStatus, InventoryHealth, PROTOCOL_VERSION, PairingCommandError,
     PairingFailure, PairingUpdate,
 };
-use openlogi_core::config::Lighting;
+use openlogi_core::config::{DisabledKeys, Lighting};
 use openlogi_core::device::DeviceInventory;
 use openlogi_hid::{
     DeviceRoute, DpiInfo, ReceiverSelector, SmartShiftMode, SmartShiftStatus, WriteError,
@@ -80,7 +80,12 @@ pub enum Command {
     SetDpi(DeviceRoute, u32),
     SetLighting(DeviceRoute, Lighting),
     SetSmartShift(DeviceRoute, SmartShiftMode, u8, u8),
+    SetDisabledKeys(DeviceRoute, DisabledKeys),
     ReadDpi(DeviceRoute, oneshot::Sender<Result<DpiInfo, WriteError>>),
+    ReadDisabledKeys(
+        DeviceRoute,
+        oneshot::Sender<Result<DisabledKeys, WriteError>>,
+    ),
     ReadSmartShift(
         DeviceRoute,
         oneshot::Sender<Result<SmartShiftStatus, WriteError>>,
@@ -553,11 +558,17 @@ async fn handle(
         Command::SetSmartShift(route, mode, auto, torque) => {
             log_apply(client.set_smartshift(ctx, route, mode, auto, torque).await)?;
         }
+        Command::SetDisabledKeys(route, keys) => {
+            log_apply(client.set_disabled_keys(ctx, route, keys).await)?;
+        }
         Command::ReadDpi(route, reply) => {
             let _ = reply.send(rpc_result(client.read_dpi(ctx, route).await)?);
         }
         Command::ReadSmartShift(route, reply) => {
             let _ = reply.send(rpc_result(client.read_smartshift(ctx, route).await)?);
+        }
+        Command::ReadDisabledKeys(route, reply) => {
+            let _ = reply.send(rpc_result(client.read_disabled_keys(ctx, route).await)?);
         }
         Command::ReloadConfig => client.reload_config(ctx).await.map_err(|_| ())?,
         Command::RequestAccessibilityPrompt => client
@@ -627,6 +638,9 @@ fn reply_disconnected(pairing_tx: &mpsc::UnboundedSender<PairingUpdate>, cmd: Co
             let _ = reply.send(Err(WriteError::AgentUnavailable));
         }
         Command::ReadSmartShift(_, reply) => {
+            let _ = reply.send(Err(WriteError::AgentUnavailable));
+        }
+        Command::ReadDisabledKeys(_, reply) => {
             let _ = reply.send(Err(WriteError::AgentUnavailable));
         }
         Command::StartPairing(_) | Command::PairDevice(_) => {

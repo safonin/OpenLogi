@@ -6,6 +6,7 @@
 
 pub mod carousel;
 pub mod device_read;
+pub mod disable_keys_panel;
 pub mod dpi_panel;
 pub mod lighting_panel;
 pub mod smartshift_panel;

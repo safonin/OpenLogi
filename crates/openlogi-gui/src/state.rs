@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 
 use gpui::{App, Global};
 use openlogi_core::config::{
-    AppSettings, Appearance, AssetSourcePreference, Config, DeviceIdentity, Lighting,
+    AppSettings, Appearance, AssetSourcePreference, Config, DeviceIdentity, DisabledKeys, Lighting,
 };
 use openlogi_core::device::{DeviceInventory, DeviceModelInfo};
 use openlogi_hid::{
@@ -26,7 +26,7 @@ mod devices;
 mod load;
 
 pub use devices::DeviceRecord;
-pub use load::{DpiStatus, Load, SmartShiftLoad};
+pub use load::{DisabledKeysLoad, DpiStatus, Load, SmartShiftLoad};
 
 /// Result of confirming a SmartShift write by reading the value back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,6 +130,7 @@ pub struct AppState {
     /// [`Self::dpi_data`]; the device persists the values itself, so this is a
     /// read/write cache, not a source of truth saved to disk.
     smartshift_data: LazyDeviceData<SmartShiftStatus>,
+    disabled_keys_data: LazyDeviceData<DisabledKeys>,
     /// Devices whose SmartShift was just written optimistically and still need a
     /// confirming re-read, keyed by [`DeviceRecord::config_key`]. A fire-and-
     /// forget write can be rejected/timed-out by a sleeping device, so the panel
@@ -203,6 +204,7 @@ impl AppState {
             dpi_data: LazyDeviceData::default(),
             inventory_misses: BTreeMap::new(),
             smartshift_data: LazyDeviceData::default(),
+            disabled_keys_data: LazyDeviceData::default(),
             smartshift_pending_confirm: BTreeMap::new(),
             next_smartshift_write_id: 0,
             smartshift_write_status: BTreeMap::new(),
@@ -444,6 +446,7 @@ impl AppState {
         for key in &rerouted {
             self.dpi_data.remove(key);
             self.smartshift_data.remove(key);
+            self.disabled_keys_data.remove(key);
             self.smartshift_pending_confirm.remove(key);
             self.smartshift_write_status.remove(key);
         }
@@ -454,6 +457,7 @@ impl AppState {
         };
         self.dpi_data.retain_present(present);
         self.smartshift_data.retain_present(present);
+        self.disabled_keys_data.retain_present(present);
         self.smartshift_pending_confirm
             .retain(|key, _| present(key));
         self.smartshift_write_status.retain(|key, _| present(key));
@@ -1068,6 +1072,99 @@ impl AppState {
             .unwrap_or_default()
     }
 
+    /// The explicit disabled-keys override, otherwise the live device read.
+    pub fn disabled_keys(&self) -> DisabledKeys {
+        match self.current_disabled_keys_status() {
+            DisabledKeysLoad::Ready(keys) => keys,
+            _ => DisabledKeys::default(),
+        }
+    }
+
+    pub fn current_disabled_keys_status(&self) -> DisabledKeysLoad {
+        self.current_record()
+            .map_or(DisabledKeysLoad::Unknown, |record| {
+                record
+                    .persistent_config_key()
+                    .and_then(|key| self.config.disabled_keys(key))
+                    .map_or_else(
+                        || self.disabled_keys_data.status(&record.config_key),
+                        DisabledKeysLoad::Ready,
+                    )
+            })
+    }
+
+    pub fn current_disabled_keys_unqueried(&self) -> bool {
+        self.current_record().is_some_and(|record| {
+            let has_override = record
+                .persistent_config_key()
+                .and_then(|key| self.config.disabled_keys(key))
+                .is_some();
+            !has_override && self.disabled_keys_data.unqueried(&record.config_key)
+        })
+    }
+
+    pub fn mark_disabled_keys_loading(&mut self, key: &str) {
+        self.disabled_keys_data.mark_loading(key);
+    }
+
+    pub fn clear_disabled_keys_loading(&mut self, key: &str) {
+        self.disabled_keys_data.clear_loading(key);
+    }
+
+    pub fn retry_active_disabled_keys(&mut self) {
+        if let Some(key) = self
+            .current_record()
+            .map(|record| record.config_key.clone())
+        {
+            self.disabled_keys_data.retry(&key);
+        }
+    }
+
+    pub fn store_disabled_keys(
+        &mut self,
+        key: String,
+        route: &DeviceRoute,
+        result: Result<DisabledKeys, WriteError>,
+    ) {
+        let matches_route = self
+            .device_list
+            .iter()
+            .any(|record| record.config_key == key && record.route.as_ref() == Some(route));
+        let still_present = self
+            .device_list
+            .iter()
+            .any(|record| record.config_key == key);
+        self.disabled_keys_data.store(
+            key,
+            result,
+            disabled_keys_error_is_permanent,
+            matches_route,
+            still_present,
+            "DisableKeys",
+        );
+    }
+
+    /// Persist a new disabled-keys config and push it to the hardware.
+    pub fn commit_disabled_keys(&mut self, keys: DisabledKeys) {
+        let Some(record) = self.current_record() else {
+            debug!("no active device — disabled-keys change ignored");
+            return;
+        };
+        let key = record.persistent_config_key().map(str::to_string);
+        let target = record.route.clone();
+        self.disabled_keys_data
+            .set_ready(record.config_key.clone(), keys);
+        if let Some(route) = target {
+            self.send_ipc(crate::ipc_client::Command::SetDisabledKeys(route, keys));
+        }
+        let Some(key) = key else {
+            debug!("transient device disabled-keys applied without persistence");
+            return;
+        };
+        self.config.set_disabled_keys(&key, keys);
+        self.persist_and_reload("disabled_keys");
+    }
+
     /// The stored lighting config for `key`, or `None` when unset.
     #[must_use]
     pub fn lighting_for(&self, key: &str) -> Option<Lighting> {
@@ -1496,6 +1593,10 @@ fn dpi_error_is_permanent(error: &WriteError) -> bool {
 /// supported" reply (the device lacks `0x2111`) never changes, so stop
 /// probing. Everything else (timeouts, busy device) is transient.
 fn smartshift_error_is_permanent(error: &WriteError) -> bool {
+    matches!(error, WriteError::FeatureUnsupported { .. })
+}
+
+fn disabled_keys_error_is_permanent(error: &WriteError) -> bool {
     matches!(error, WriteError::FeatureUnsupported { .. })
 }
 

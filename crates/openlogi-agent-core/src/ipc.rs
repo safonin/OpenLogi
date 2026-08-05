@@ -6,7 +6,7 @@
 //! flow long-polls [`Agent::next_pairing`], which the agent holds open until a
 //! pairing event arrives or the request deadline elapses.
 
-use openlogi_core::config::Lighting;
+use openlogi_core::config::{DisabledKeys, Lighting};
 use openlogi_core::device::DeviceInventory;
 use openlogi_hid::{
     DeviceRoute, DpiInfo, PairingError, PasskeyMethod, ReceiverSelector, SmartShiftMode,
@@ -28,7 +28,8 @@ use serde::{Deserialize, Serialize};
 /// v8: [`WriteError`] carries typed HID++ operation failures.
 /// v9: `poll_event_monitor` appended + [`MonitorEvent`] (live event monitor).
 /// v10: `Capabilities::hires_wheel` appended.
-pub const PROTOCOL_VERSION: u32 = 10;
+/// v11: `Capabilities::disable_keys` + `set_disabled_keys` / `read_disabled_keys` added.
+pub const PROTOCOL_VERSION: u32 = 11;
 
 /// Where the agent's device enumeration stands. The distinction matters
 /// because an empty inventory list is ambiguous on its own: the GUI must keep
@@ -275,4 +276,9 @@ pub trait Agent {
     /// there is no explicit stop. Appended last — see the method-order note on
     /// [`Agent::protocol_version`].
     async fn poll_event_monitor() -> Vec<MonitorEvent>;
+    /// Apply a set of disabled keys to `route`. Appended for protocol v11 —
+    /// keep future methods append-only (see [`Self::protocol_version`]).
+    async fn set_disabled_keys(route: DeviceRoute, keys: DisabledKeys) -> Result<(), WriteError>;
+    /// Read the currently-disabled keys from `route`.
+    async fn read_disabled_keys(route: DeviceRoute) -> Result<DisabledKeys, WriteError>;
 }

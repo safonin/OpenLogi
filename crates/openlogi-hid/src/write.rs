@@ -14,6 +14,7 @@ use hidpp::{channel::HidppChannel, device::Device, feature::CreatableFeature};
 use crate::route::{DeviceRoute, open_route_channel};
 
 mod diagnostics;
+mod disable_keys;
 mod dpi;
 mod error;
 mod lighting;
@@ -21,6 +22,7 @@ mod shared;
 mod smartshift;
 
 pub use diagnostics::{FeatureEntry, ReprogControlEntry, dump_features, dump_reprog_controls};
+pub use disable_keys::{get_disable_keys_capabilities, get_disabled_keys, set_disabled_keys};
 pub use dpi::{DpiCapabilities, DpiInfo, get_dpi, get_dpi_info, set_dpi};
 pub use error::{HidppFeatureErrorKind, HidppOperation, WriteError};
 pub use lighting::{LightingMethod, set_keyboard_color, set_keyboard_color_with};

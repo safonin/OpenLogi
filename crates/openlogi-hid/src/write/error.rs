@@ -100,6 +100,10 @@ pub enum HidppOperation {
     ReadWheelMode,
     /// Write and verify the native HiResWheel mode.
     WriteWheelMode,
+    /// Read the set of disabled keys.
+    ReadDisableKeys,
+    /// Write the set of disabled keys.
+    WriteDisableKeys,
 }
 
 /// HID++ feature error kind in a serializable wire-safe form.

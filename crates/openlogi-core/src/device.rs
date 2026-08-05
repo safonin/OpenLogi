@@ -102,6 +102,10 @@ pub struct Capabilities {
     /// can be read and changed independently of inversion support.
     #[serde(default)]
     pub hires_wheel: bool,
+    /// DisableKeys — HID++ `0x4521`: the device lets software disable a fixed
+    /// set of lock/system keys (CapsLock, NumLock, ScrollLock, Insert, Win).
+    #[serde(default)]
+    pub disable_keys: bool,
 }
 
 impl Capabilities {
@@ -116,6 +120,8 @@ impl Capabilities {
         // running onboard profile, falling back to 0x8080 per-key). Other families
         // (backlight 0x198x) stay out so they don't earn a tab the panel can't drive.
         const LIGHTING: [u16; 2] = [0x8080, 0x8070];
+        // DisableKeys (0x4521).
+        const DISABLE_KEYS: [u16; 1] = [0x4521];
         let has = |family: &[u16]| ids.iter().any(|id| family.contains(id));
         Self {
             buttons: has(&BUTTONS),
@@ -123,6 +129,7 @@ impl Capabilities {
             lighting: has(&LIGHTING),
             scroll_inversion: false,
             hires_wheel: ids.contains(&0x2121),
+            disable_keys: has(&DISABLE_KEYS),
         }
     }
 
@@ -140,6 +147,7 @@ impl Capabilities {
                 lighting: false,
                 scroll_inversion: false,
                 hires_wheel: false,
+                disable_keys: false,
             },
             DeviceKind::Keyboard => Self {
                 lighting: true,
@@ -371,6 +379,7 @@ mod tests {
                     lighting: false,
                     scroll_inversion: false,
                     hires_wheel: false,
+                    disable_keys: false,
                 }),
             }],
         }
@@ -434,6 +443,7 @@ mod tests {
                 lighting: false,
                 scroll_inversion: false,
                 hires_wheel: true,
+                disable_keys: false,
             }
         );
         // A wired G-series keyboard: PerKeyLighting (0x8080), no DPI/buttons.
@@ -446,6 +456,7 @@ mod tests {
                 lighting: true,
                 scroll_inversion: false,
                 hires_wheel: false,
+                disable_keys: false,
             }
         );
         // No driving features → nothing offered.
